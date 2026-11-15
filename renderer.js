@@ -1836,13 +1836,79 @@ async function checkUpdate(manual = false) {
     box.innerHTML = '';
     const strong = document.createElement('strong');
     strong.textContent = `Nova versão ${r.tag} disponível!`;
-    box.append(strong, document.createTextNode(` Você está na v${current}.`));
+    box.append(strong, document.createTextNode(` Você está na v${current}. ` +
+      'Dica: a versão com instalador (TelaShare-Setup) se atualiza sozinha.'));
     $('updateDownload').classList.remove('hidden');
     $('aboutBtn').classList.add('has-update');
     if (!manual) showToast(`⬆️ Nova versão ${r.tag} disponível. Clique no botão "i" para baixar.`, 'info', 8000);
   } else {
     box.textContent = `✅ Você está na versão mais recente (v${current}).`;
     $('aboutBtn').classList.remove('has-update');
+  }
+}
+
+// ---------- atualização automática (#44, só na versão instalada) ----------
+// O processo principal (electron-updater) baixa a versão nova em segundo plano e avisa aqui.
+let updateReadyToasted = false;
+let updateCurrent = '';
+function renderAutoUpdate(st) {
+  const box = $('updateText'), btn = $('updateDownload');
+  btn.classList.add('hidden');
+  const cur = updateCurrent;
+  switch (st && st.status) {
+    case 'checking':
+      box.textContent = 'Verificando...';
+      break;
+    case 'downloading':
+      box.textContent = `⬇️ Baixando a versão v${st.version}... ${st.percent || 0}%`;
+      $('aboutBtn').classList.add('has-update');
+      break;
+    case 'ready': {
+      box.innerHTML = '';
+      const strong = document.createElement('strong');
+      strong.textContent = `Versão v${st.version} pronta para instalar.`;
+      box.append(strong, document.createTextNode(' Reinicie para atualizar, ou ela será instalada quando você fechar o TelaShare.'));
+      btn.textContent = '🔄 Reiniciar e atualizar';
+      btn.classList.remove('hidden');
+      $('aboutBtn').classList.add('has-update');
+      if (!updateReadyToasted) {
+        updateReadyToasted = true;
+        showToast(`⬆️ Versão v${st.version} baixada. Clique no "i" para reiniciar e atualizar (ou feche o app quando quiser).`, 'info', 10000);
+      }
+      break;
+    }
+    case 'latest':
+      box.textContent = `✅ Você está na versão mais recente (${cur}). As atualizações são automáticas.`;
+      $('aboutBtn').classList.remove('has-update');
+      break;
+    case 'error':
+      box.textContent = 'Não foi possível verificar agora (sem internet ou sem acesso às versões no GitHub).';
+      break;
+    default:
+      box.textContent = 'As atualizações são automáticas: o app verifica ao abrir e a cada 4 horas.';
+  }
+}
+
+async function installUpdate() {
+  if (peer && !confirm('Reiniciar agora para atualizar?\nVocê vai sair da sala (dá para entrar de novo depois).')) return;
+  if (peer) leaveRoom();
+  await window.native.updateInstall();
+}
+
+async function initUpdates() {
+  try { updateCurrent = 'v' + (await window.native.getVersion()); } catch {}
+  let st = null;
+  try { st = await window.native.updateState(); } catch {}
+  if (st && st.mode === 'auto') {
+    window.native.onUpdateStatus(renderAutoUpdate);
+    renderAutoUpdate(st);
+    $('updateCheck').onclick = () => window.native.updateCheck();
+    $('updateDownload').onclick = installUpdate;
+  } else {
+    // .exe portátil (ou rodando pelo código): aviso de nova versão + botão de download
+    $('updateCheck').onclick = () => checkUpdate(true);
+    $('updateDownload').onclick = () => window.native.openLink('releases');
+    checkUpdate(false); // uma consulta ao abrir; mostra aviso se houver versão nova
   }
 }
 
@@ -1866,8 +1932,6 @@ function initAbout() {
     $('thirdText').scrollTop = 0;
   }));
   $('chromiumLic').onclick = () => window.native.openChromiumLicenses();
-  $('updateCheck').onclick = () => checkUpdate(true);
-  $('updateDownload').onclick = () => window.native.openLink('releases');
 }
 
 // =====================================================================
@@ -1926,7 +1990,7 @@ async function init() {
   $('diagBtn').onclick = copyDiagnostics;
   $('projectLink').onclick = e => { e.preventDefault(); window.native.openProject && window.native.openProject(); };
   initAbout();
-  checkUpdate(false); // uma consulta ao abrir; mostra aviso se houver versão nova
+  initUpdates();
   $('licenseLink').onclick = e => { e.preventDefault(); window.native.openLicense && window.native.openLicense(); };
   try {
     const v = 'v' + (await window.native.getVersion());
