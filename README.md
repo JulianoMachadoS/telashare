@@ -125,6 +125,11 @@ o app avisa e volta para a tela inicial.
 - Quem sai **de propósito** ("Sair da sala" ou fechando o app) não dispara reconexão nos outros.
 - O **anfitrião** mantém a sala aberta e só reconecta ao servidor; quem volta são os convidados.
 
+**Se o anfitrião sair**, a sala **não acaba**:
+- quem ficou continua conversando e fica procurando a sala; se o anfitrião criar a sala de novo, todos se religam a ele;
+- depois de ~6 s sem anfitrião, um dos convidados **assume a sala** sozinho ("👑 Você agora mantém a sala aberta"), para que pessoas novas, ou quem saiu, consigam entrar;
+- quem clicar em **Criar sala** com o código de uma sala que já está aberta entra nela, em vez de receber um erro.
+
 **Com 3 ou mais pessoas**, cada par tem a sua própria ligação direta. Se cair **só** a ligação
 entre você e uma pessoa (e o resto da sala continuar), o app religa esse par sozinho: aparece
 "📶 Conexão com Fulano caiu. Religando..." e depois "✅ Religado com Fulano" (até 6 tentativas).
@@ -268,6 +273,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 24 | Microfone desconectado → passa para o padrão e avisa |
 | 25–26 | 🎲 código aleatório; ocultar a minha prévia |
 | 27 | **(#31)** Três pessoas: só a ligação entre dois convidados cai e é religada sozinha, com voz nos dois sentidos; quem sai de propósito não é religado |
+| 28 | **(#32)** O anfitrião sai e cria a sala de novo (todos se religam); sai de vez (um convidado assume e uma pessoa nova encontra todos); volta com "Criar sala" (entra na sala existente) |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
