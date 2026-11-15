@@ -82,6 +82,10 @@ async function until(fn, ms) { const t = Date.now(); while (Date.now() - t < ms)
 const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? '✅ PASSOU ' : '❌ FALHOU ') + name + (extra ? ' — ' + extra : '')); };
 const destroy = ws => ws.forEach(w => w.destroy());
+// Em caso de falha, mostra o estado de cada janela (ajuda a entender falhas que só acontecem no CI)
+const dump = async ws => { for (const w of ws) { try { console.log('  ESTADO', JSON.stringify(await js(w, `({ id: peer && peer.id, host: isHost, open: !!(peer && peer.open), status: status.textContent,
+  peers: [...peers.values()].map(p => ({ n: p.name, conn: !!(p.conn && p.conn.open), mic: !!p.micCall, audio: !!(p.audioEl && p.audioEl.srcObject), pc: p.conn && p.conn.peerConnection && p.conn.peerConnection.connectionState })),
+  roster: typeof roster !== 'undefined' ? [...roster.keys()] : null, pending: typeof pending !== 'undefined' ? [...pending.keys()] : null, toasts: toastLog, alerts: __alerts })`))); } catch (e) { console.log('  ESTADO erro', e.message); } } };
 const rid = () => 'suite' + Math.floor(Math.random() * 1e9);
 // Filtro de módulos: "npm test -- 4 27" roda só os testes 4 e 27 (sem números = todos)
 const ONLY = process.argv.slice(2).join(',').split(/[,\s]+/).filter(a => /^\d+$/.test(a));
@@ -96,6 +100,7 @@ app.whenReady().then(async () => {
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     const ok = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 20000);
     check(`1.${i} Criar sala + entrar (voz conectada nos dois lados)`, ok);
+    if (!ok) await dump([A, B]);
     destroy([A, B]);
   }
   // 2. Amigo entra antes do anfitrião criar
