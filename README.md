@@ -54,6 +54,51 @@ Não existe servidor próprio nem túnel. Funciona em duas etapas:
 
 Se a etapa 2 falhar por causa de firewall ou NAT restrito, o app avisa e sugere as soluções abaixo.
 
+## 🌐 Não conecta? Crie um túnel (VPN)
+
+**Não precisa estar na mesma rede.** Cada um pode estar na sua casa, com a sua internet. O túnel cria
+uma **rede virtual** por cima da internet: para o computador, é como se todos estivessem ligados no
+mesmo roteador. Não precisa abrir portas no roteador nem ter servidor.
+
+Recomendado: **Radmin VPN**, que é gratuito, só para Windows e o mais simples de usar.
+
+### Passo a passo (Radmin VPN)
+
+**Quem cria a rede (uma vez só):**
+1. Baixe e instale: https://www.radmin-vpn.com
+2. Abra e clique em **"Criar rede"**.
+3. Escolha um **nome de rede** (ex.: `telashare-amigos`) e uma **senha**, e clique em **Criar**.
+4. Mande o nome e a senha para os amigos.
+
+**Cada amigo (uma vez só):**
+1. Instala o Radmin VPN.
+2. Clica em **"Entrar em uma rede existente"**.
+3. Digita o nome e a senha recebidos.
+
+Pronto: todos aparecem na lista do Radmin. **Bolinha verde** significa conectado. Para testar, clique
+com o botão direito num amigo → **Ping**.
+
+**No dia a dia:**
+1. Todos abrem o Radmin VPN e conferem se está **ligado** (botão de energia azul).
+2. Abrem o TelaShare normalmente: um cria a sala e os outros entram com o código.
+
+O TelaShare percebe a rede do Radmin sozinho e usa ela para a conexão direta. Não precisa configurar
+nada no app.
+
+### Alternativas
+
+| Opção | Quando usar |
+|---|---|
+| **[Tailscale](https://tailscale.com)** | A mais confiável. Se a conexão direta for impossível, ele retransmite pelos servidores dele, então **sempre conecta**. Cada um entra com uma conta Google/Microsoft, e quem criou convida os outros pelo painel. |
+| **[ZeroTier](https://www.zerotier.com)** | Parecido com o Radmin: crie uma rede e os amigos entram com o ID dela. Funciona em Windows, Mac e celular. |
+
+### Dicas
+
+- Na primeira vez, o **Firewall do Windows** pode perguntar se o TelaShare ou o Radmin podem acessar
+  a rede. Marque **Redes privadas e públicas** e clique em **Permitir**.
+- Usem **o mesmo túnel todos**. Se um estiver no Radmin e outro no Tailscale, eles não se enxergam.
+- Com o túnel, o mais comum é a qualidade **melhorar**, porque a conexão fica mais estável.
+
 ## ⚠️ Limitações e dicas
 
 - **Eco no áudio da tela:** "Incluir áudio do PC" captura *todo* o som do Windows, inclusive a voz
@@ -62,10 +107,8 @@ Se a etapa 2 falhar por causa de firewall ou NAT restrito, o app avisa e sugere 
 - **"Sala não encontrada"**: o código está diferente nos dois PCs, ou quem criou a sala fechou o app.
   O código ignora maiúsculas, espaços e acentos.
 - **"A sala existe, mas não foi possível conectar diretamente"**: veja o item abaixo.
-- **Não conecta?** Algumas redes muito restritas (redes corporativas, internet 4G/5G nos dois lados)
-  bloqueiam a conexão direta. Nesse caso, instalem uma VPN gratuita como
-  [Radmin VPN](https://www.radmin-vpn.com), [Tailscale](https://tailscale.com) ou
-  [ZeroTier](https://www.zerotier.com) e usem o TelaShare normalmente com ela ligada.
+- **Não conecta?** Algumas redes (corporativas, internet 4G/5G) bloqueiam a conexão direta.
+  Criem um túnel: veja [**Não conecta? Crie um túnel (VPN)**](#-não-conecta-crie-um-túnel-vpn).
 - **Servidor TURN (avançado):** um TURN retransmite o tráfego quando a conexão direta é impossível.
   Dá para criar um gratuito em [Metered](https://www.metered.ca/stun-turn) ou
   [Cloudflare Calls](https://developers.cloudflare.com/realtime/turn/) e colar a URL, o usuário e a
