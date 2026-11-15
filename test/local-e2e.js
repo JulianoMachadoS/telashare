@@ -554,6 +554,42 @@ app.whenReady().then(async () => {
     check('30b. (#33) Vídeo da tela cai depois de conectado: volta sozinho, com a voz intacta', back && (await count(A)) === 1,
       `tiles=${await tiles()} voz=${await count(A)}`);
     destroy([A, B]); }
+  // 31. (#35) Compartilhar com áudio do PC não pode reenviar as vozes da sala.
+  //     O áudio do PC (loopback) só existe no Windows: aqui a captura é simulada e o teste confere
+  //     que o app PEDE para excluir o próprio som e AVISA quando o sistema não consegue.
+  if (want(31)) { const A = mk(); await ready([A]);
+    const share = (selfExcluded, withAudio) => js(A, `(async () => {
+      openPicker = async () => 'tela-falsa';
+      shareAudioChk.checked = ${withAudio};
+      window.__gdm = null;
+      navigator.mediaDevices.getDisplayMedia = async opts => {
+        window.__gdm = JSON.parse(JSON.stringify(opts));
+        const c = document.createElement('canvas'); c.width = 320; c.height = 180; c.getContext('2d').fillRect(0, 0, 320, 180);
+        const tracks = [c.captureStream(5).getVideoTracks()[0]];
+        if (opts.audio) {
+          const o = audioCtx.createOscillator(); const d = audioCtx.createMediaStreamDestination(); o.connect(d); o.start();
+          const t = d.stream.getAudioTracks()[0];
+          const orig = t.getSettings.bind(t);
+          t.getSettings = () => Object.assign(orig(), { restrictOwnAudio: ${selfExcluded} });
+          tracks.push(t);
+        }
+        return new MediaStream(tracks);
+      };
+      toastLog.length = 0;
+      await startShare();
+      const r = { pedido: window.__gdm && window.__gdm.audio, separado: screenAudioExcludesSelf, toasts: toastLog.slice(), enviando: !!screenStream && screenStream.getAudioTracks().length };
+      stopShare();
+      return r; })()`);
+    const ok = await share(true, true);
+    const bad = await share(false, true);
+    const mute = await share(true, false);
+    check('31a. (#35) Com "Incluir áudio", o app pede a captura SEM o som do próprio app (restrictOwnAudio)',
+      ok.pedido && ok.pedido.restrictOwnAudio === true && ok.pedido.echoCancellation === false && ok.separado === true && ok.enviando === 1 && !ok.toasts.some(t => /não conseguiu separar/.test(t)), JSON.stringify(ok));
+    check('31b. (#35) Se o sistema não separar o som da chamada, quem compartilha é avisado', bad.separado === false && bad.toasts.some(t => /não conseguiu separar/.test(t)), JSON.stringify(bad.toasts));
+    check('31c. (#35) Sem "Incluir áudio", nenhum áudio é capturado nem aviso aparece', mute.pedido === false && mute.enviando === 0 && !mute.toasts.length, JSON.stringify(mute));
+    const mainSrc = require('fs').readFileSync(path.join(APP, 'main.js'), 'utf8');
+    check('31d. (#35) O app liga o recurso do Chromium que exclui o próprio som (RestrictOwnAudio)', /appendSwitch\('enable-features', '[^']*RestrictOwnAudio/.test(mainSrc));
+    destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
