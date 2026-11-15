@@ -144,6 +144,16 @@ Para resolver de vez, use um servidor **TURN** em "Avançado" ou uma **VPN** (ve
 chamada sozinho, e quem assiste pede de novo se a tela não chegar. Se mesmo assim não chegar, os dois
 recebem o aviso "⚠️ A tela de Fulano não está chegando".
 
+### 🩺 Copiar diagnóstico
+Se algo der errado (alguém não aparece, a tela não chega, sem som), cada pessoa clica em
+**🩺 Copiar diagnóstico** e cola o texto na conversa. Ele mostra:
+- versão, sala e se você é o anfitrião;
+- cada ligação (dados, voz e telas), com o estado e o tipo de conexão (`host` = rede local/VPN, `srflx` = direta pela internet, `relay` = via TURN);
+- quem está na sala **sem** ligação com você;
+- os últimos eventos (entrou, caiu, religou, refez a tela...).
+
+O texto **não** inclui endereços IP.
+
 ## ⚙️ Como funciona a conexão
 
 Não existe servidor próprio nem túnel. Funciona em duas etapas:
@@ -288,6 +298,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 29 | **(#30)** Ligação entre dois convidados bloqueada (simulado): tenta de novo até conectar; bloqueada de vez avisa os dois e mostra ⚠️ na lista; quando libera, conecta e o aviso some |
 | 30 | **(#33)** A chamada da tela falha nas primeiras vezes e é refeita até aparecer; o vídeo cai depois de conectado e volta sozinho, sem afetar a voz |
 | 31 | **(#35)** Compartilhar com áudio pede a captura **sem** o som do próprio app e avisa quando o sistema não consegue separar (captura simulada: o áudio do PC real só existe no Windows) |
+| 32 | **(#34)** "Copiar diagnóstico": mostra cada ligação (dados e voz, com o tipo de conexão), quem está na sala sem ligação e os últimos eventos, sem endereços IP |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
