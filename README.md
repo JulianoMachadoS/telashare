@@ -1,5 +1,7 @@
 # TelaShare
 
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+
 Compartilhamento de tela **com áudio** entre 2 ou mais computadores Windows, com voz e controle de volume.
 É simples, sem chat e sem cadastro: todo mundo digita o mesmo código de sala e pronto.
 
@@ -22,6 +24,15 @@ Baixe o **`TelaShare.exe`** na página de [**Releases**](../../releases/latest).
 5. As telas dos outros aparecem na área principal. Dê **duplo clique** para ver em tela cheia.
 
 Várias pessoas podem compartilhar a tela ao mesmo tempo.
+
+### 📋 Convidar pelo link
+Dentro da sala, clique em **📋 Copiar convite** e mande a mensagem para o amigo. Ela contém um link
+`telashare://sala/<código>`: com o TelaShare aberto pelo menos uma vez no PC do amigo, abrir esse link
+já abre o app e entra na sala.
+
+> Alguns apps de chat (WhatsApp, Discord) não deixam clicar em links `telashare://`. Nesse caso,
+> copie o link e cole na barra de endereço do navegador ou em **Win + R**, ou use o código da sala
+> que vai junto na mensagem.
 
 ## 🎚️ Controles
 
@@ -46,6 +57,7 @@ Várias pessoas podem compartilhar a tela ao mesmo tempo.
 | **🔊 Testar som** | Toca um som curto para conferir a saída |
 | **Participantes → Volume da voz** | 0 a **400%** para cada pessoa |
 | **🔊 na barra de cada tela** | 0 a **400%** para o áudio de cada tela recebida |
+| **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
 
 Um limitador automático evita distorção quando o volume passa de 100%. O app lembra o volume de
 cada pessoa pelo nome dela.
@@ -56,6 +68,10 @@ cada pessoa pelo nome dela.
 | **Incluir áudio do PC** | Envia o som do computador junto com a tela |
 | **Qualidade** | 720p 30fps · 1080p 30fps · 1080p 60fps |
 | **Volume do áudio da tela enviado** | Volume do som do seu PC que os outros ouvem |
+
+**Qualidade adaptativa:** se a rede de alguém piorar, a qualidade da sua tela **para aquela pessoa**
+baixa sozinha (máxima → média → baixa) em vez de travar, e volta quando a rede melhora. Sua prévia
+mostra para quem a qualidade foi reduzida.
 
 O app guarda suas configurações para a próxima vez.
 
@@ -77,6 +93,7 @@ Exemplo: `35 ms · direta · 2% perda`.
 - **ms**: tempo de resposta (ping). Até 150 ms é ótimo.
 - **direta / rede local/VPN / via TURN**: por onde a conexão está passando.
 - **% perda**: pacotes perdidos. Acima de 3% o áudio pode picotar.
+- **🔇** ao lado do nome: a pessoa está com o microfone mudo.
 
 Se alguém fechar o app ou perder a internet, essa pessoa e a tela dela somem em até ~8 segundos.
 
@@ -167,17 +184,67 @@ Requisitos: [Node.js](https://nodejs.org) 20 ou mais recente.
 npm install
 npm start          # roda em modo desenvolvimento
 npm run dist       # gera dist/TelaShare.exe (Windows x64, portátil)
+npm test           # testes automatizados LOCAIS (veja abaixo)
 ```
 
 Estrutura:
 
 ```
+test/         testes automatizados LOCAIS (npm test)
 main.js       processo principal (janela, captura de tela/áudio)
 preload.js    ponte segura entre o Electron e a página
 index.html    interface
 renderer.js   lógica de conexão, áudio, volumes e compartilhamento
 style.css     visual
 ```
+
+## 🧪 Testes automatizados (LOCAIS)
+
+> ⚠️ **Estes testes são LOCAIS.** Eles abrem várias janelas do app **no mesmo computador**, cada uma
+> simulando um participante. Servem para pegar erros de lógica (entrar/sair da sala, volumes,
+> indicador de conexão), mas **não substituem um teste real entre PCs em casas diferentes**.
+
+```bash
+npm test     # leva ~4 minutos e precisa de internet (usa o servidor público do PeerJS)
+```
+
+**O que é testado:**
+
+| # | Teste |
+|---|---|
+| 1 | Criar sala + entrar, com voz conectada nos dois lados (3 vezes) |
+| 2 | Entrar antes de a sala existir |
+| 3 | Código errado mostra "Sala não encontrada" |
+| 4 | Três pessoas, todos conectados a todos |
+| 5 | Quem sai some da lista |
+| 6 | Voz chega; volume 300% ≈ 3x; 0% silencia; ganho do microfone na proporção certa; sem distorção em 400% |
+| 7 | Indicador "Conectado"; ping e tipo de conexão aparecem |
+| 8 | Testar som, ouvir microfone e gravar teste funcionam |
+| 9–11 | Fechar o app ou sair remove a pessoa e a tela dela |
+| 12 | 20 segundos conectado sem remoção falsa |
+
+**O que NÃO é testado** (precisa de teste manual):
+- ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
+  "rede local", porque tudo roda no mesmo computador.
+- ❌ **Captura de tela real**: o teste usa uma imagem gerada no lugar da tela.
+- ❌ **Áudio do PC (loopback)**: só existe no Windows.
+- ❌ **Qualidade do som para o ouvido**: os testes medem níveis numéricos, não se o som está agradável.
+- ❌ **O `.exe` no Windows**: os testes rodam o código-fonte com o Electron do sistema em que você está.
+
+Os testes usam um microfone falso do Chromium (um bipe) e ficam em `test/local-e2e.js`.
+
+## ⚙️ CI (GitHub Actions)
+
+A cada push na branch `main`, o GitHub:
+1. roda os **testes locais** no **Windows** e no **Linux** (cada um numa única máquina virtual; continuam sendo testes LOCAIS);
+2. gera o `TelaShare.exe` **no Windows**, disponível em *Actions → execução → Artifacts*.
+
+Para publicar uma versão nova, crie e envie uma tag:
+```bash
+git tag v1.3.0 && git push origin v1.3.0
+```
+O CI gera o `.exe` e cria a Release sozinho. Se existir `release-notes/<tag>.md`, ele é usado como
+descrição da release.
 
 ## 📄 Licença
 

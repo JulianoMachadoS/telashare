@@ -35,16 +35,21 @@ let leaving = false;
 const peers = new Map(); // id -> { id, name, conn, micCall, screenOut, screenIn, audioEl, voiceSrc, voiceGain, analyser, screenSrc, screenGainNode, vol, screenVol, net }
 
 // Todo áudio passa pelo Web Audio, o que permite ganho acima de 100%:
-//  entrada: mic -> micGain -> micLimiter -> muteGain -> (envio | medidor | monitor)
-//  saída:   vozes/telas -> ganho por pessoa -> outMaster -> outLimiter -> alto-falante
-let audioCtx, micGain, micLimiter, muteGain, micAnalyser, micDest, monitorGain;
-let outMaster, outLimiter;
+//  entrada: mic -> micGain -> limitador suave -> muteGain -> (envio | medidor | monitor)
+//  saída:   vozes/telas -> ganho por pessoa -> outMaster -> limitador suave -> alto-falante
+let audioCtx, micGain, muteGain, micAnalyser, micDest, monitorGain;
+let outMaster;
 let micRaw = null, micSource = null, micMuted = false, monitoring = false, recording = false;
 
 let screenRaw = null, screenStream = null, screenAudioNode = null, screenGain = null;
 let currentQuality = QUALITY['1080_30'];
 
 let outVolume = 1;
+// Ducking: abaixa o áudio das telas recebidas enquanto alguém fala
+const DUCK_LEVEL = 0.3;
+const DUCK_HOLD_MS = 600;
+let duckFactor = 1;
+let lastVoiceAt = 0;
 let outDeviceId = '';
 
 // ---------- preferências salvas ----------
@@ -56,18 +61,10 @@ const store = {
 // =====================================================================
 // ÁUDIO LOCAL (microfone)
 // =====================================================================
-function makeLimiter(threshold) {
-  const c = audioCtx.createDynamicsCompressor();
-  c.threshold.value = threshold;
-  c.knee.value = 0;
-  c.ratio.value = 20;
-  c.attack.value = 0.002;
-  c.release.value = 0.15;
-  return c;
-}
-
-// Proteção final contra distorção: até 0,8 passa intacto e acima disso arredonda suavemente,
-// nunca passando de 0,98. Pega os picos rápidos que o limitador deixa escapar.
+// Limitador suave (sem atraso): até 0,8 o sinal passa intacto e acima disso é arredondado,
+// nunca passando de 0,98. Evita distorção com ganho acima de 100%.
+// Obs.: não usamos DynamicsCompressor porque ele aplica um ganho de compensação automático
+// (o ganho real ficava ~1,2x maior que o configurado) e adiciona ~6 ms de atraso.
 // (o ganho 0,5 antes do WaveShaper faz a curva cobrir entradas de -2 a +2)
 function makeSafety() {
   const pre = audioCtx.createGain();
@@ -81,7 +78,7 @@ function makeSafety() {
     curve[i] = Math.sign(x) * y;
   }
   shaper.curve = curve;
-  shaper.oversample = '2x';
+  shaper.oversample = 'none'; // '2x' gera pequenos picos acima do limite (filtro de reamostragem)
   pre.connect(shaper);
   return { input: pre, output: shaper };
 }
@@ -91,14 +88,12 @@ function initAudio() {
 
   // saída
   outMaster = audioCtx.createGain();
-  outLimiter = makeLimiter(-3);
   const outSafe = makeSafety();
-  outMaster.connect(outLimiter).connect(outSafe.input);
+  outMaster.connect(outSafe.input);
   outSafe.output.connect(audioCtx.destination);
 
   // entrada
   micGain = audioCtx.createGain();
-  micLimiter = makeLimiter(-3);
   muteGain = audioCtx.createGain();
   micAnalyser = audioCtx.createAnalyser();
   micAnalyser.fftSize = 1024;
@@ -106,7 +101,7 @@ function initAudio() {
   monitorGain = audioCtx.createGain();
   monitorGain.gain.value = 0;
   const micSafe = makeSafety();
-  micGain.connect(micLimiter).connect(micSafe.input);
+  micGain.connect(micSafe.input);
   micSafe.output.connect(muteGain);
   muteGain.connect(micAnalyser);
   muteGain.connect(micDest);
@@ -196,6 +191,7 @@ async function testOutput() {
 function setMuted(m) {
   micMuted = m;
   muteGain.gain.setTargetAtTime(m ? 0 : 1, audioCtx.currentTime, 0.01);
+  broadcast({ type: 'state', muted: m });
   const b = $('muteBtn');
   b.textContent = m ? '🔇 Microfone mudo' : '🎤 Microfone ligado';
   b.classList.toggle('muted', m);
@@ -238,11 +234,16 @@ function meterLoop() {
   m.style.width = (level * 100).toFixed(0) + '%';
   m.classList.toggle('hot', peak > 0.95);
   m.classList.toggle('low', !micMuted && level < 0.08);
+  const now = performance.now();
   for (const p of peers.values()) {
     if (!p.analyser) continue;
+    const speaking = !p.muted && levels(p.analyser).rms > 0.015;
+    if (speaking) lastVoiceAt = now;
     const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
-    if (li) li.classList.toggle('speaking', levels(p.analyser).rms > 0.015);
+    if (li) li.classList.toggle('speaking', speaking);
   }
+  const target = $('duckChk').checked && now - lastVoiceAt < DUCK_HOLD_MS ? DUCK_LEVEL : 1;
+  if (target !== duckFactor) { duckFactor = target; applyVolumes(); }
   requestAnimationFrame(meterLoop);
 }
 
@@ -257,7 +258,7 @@ function applyVolumes() {
   setGain(outMaster, outVolume);
   for (const p of peers.values()) {
     setGain(p.voiceGain, p.vol);
-    setGain(p.screenGainNode, p.screenVol);
+    setGain(p.screenGainNode, p.screenVol * duckFactor);
   }
 }
 
@@ -420,6 +421,36 @@ function enterRoom(room) {
   updateStatus();
 }
 
+// ---------- convite ----------
+function inviteLink(room) { return `telashare://sala/${room}`; }
+
+async function copyInvite() {
+  const text = `Entra na minha sala do TelaShare!\n` +
+               `Link: ${inviteLink(roomCode)}\n` +
+               `(ou abra o TelaShare, use o código "${roomCode}" e clique em Entrar)`;
+  await window.native.copyText(text);
+  const b = $('inviteBtn');
+  b.textContent = '✅ Convite copiado!';
+  setTimeout(() => (b.textContent = '📋 Copiar convite'), 2000);
+}
+
+function handleInvite(room) {
+  room = sanitizeRoom(room || '');
+  if (!room) return;
+  if (peer) {
+    if (room === roomCode) return;
+    if (!confirm(`Você recebeu um convite para a sala "${room}". Sair da sala atual e entrar nela?`)) return;
+    leaveRoom();
+  }
+  $('roomInput').value = room;
+  if (!$('nameInput').value.trim()) {
+    alert(`Convite para a sala "${room}".\nDigite seu nome e clique em Entrar.`);
+    $('nameInput').focus();
+    return;
+  }
+  joinRoom();
+}
+
 function leaveRoom() {
   leaving = true;
   stopShare();
@@ -469,7 +500,7 @@ function setupConn(conn, outgoing) {
     if (p.conn && p.conn !== conn && p.conn.open) { conn.close(); return; }
     p.conn = conn;
     p.lastSeen = Date.now();
-    conn.send({ type: 'hello', name: $('nameInput').value.trim() });
+    conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted });
 
     if (isHost) {
       const others = [...peers.keys()].filter(id => id !== conn.peer && peers.get(id).conn);
@@ -493,11 +524,16 @@ function setupConn(conn, outgoing) {
     switch (msg.type) {
       case 'ping':
         break;
+      case 'state':
+        p.muted = !!msg.muted;
+        paintMuted(p);
+        break;
       case 'bye':
         removePeer(p.id);
         break;
       case 'hello':
         p.name = String(msg.name || 'Sem nome').slice(0, 24);
+        p.muted = !!msg.muted;
         // volumes salvos para esta pessoa (pelo nome)
         p.vol = store.get('pvol_' + p.name, p.vol);
         p.screenVol = store.get('psvol_' + p.name, p.screenVol);
@@ -593,27 +629,80 @@ function attachMicCall(call) {
   });
 }
 
+// Níveis de qualidade da tela enviada. Se a rede de alguém piorar, desce um nível para
+// aquela pessoa (menos resolução e bitrate) em vez de travar; quando melhora, sobe de novo.
+const ADAPT_LEVELS = [
+  { scale: 1,   br: 1,    label: 'máxima' },
+  { scale: 1.5, br: 0.55, label: 'média' },
+  { scale: 2,   br: 0.3,  label: 'baixa' }
+];
+
+function applyEncoding(pc, level) {
+  const L = ADAPT_LEVELS[level];
+  pc.getSenders().forEach(s => {
+    if (!s.track || s.track.kind !== 'video') return;
+    const params = s.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = Math.round(currentQuality.bitrate * L.br);
+    params.encodings[0].maxFramerate = currentQuality.fps;
+    params.encodings[0].scaleResolutionDownBy = L.scale;
+    params.degradationPreference = currentQuality.fps >= 60 ? 'maintain-framerate' : 'balanced';
+    s.setParameters(params).catch(e => console.warn('setParameters', e));
+  });
+}
+
 function callScreen(id) {
   const p = getPeer(id);
   if (p.screenOut) { try { p.screenOut.close(); } catch {} }
   const call = peer.call(id, screenStream, { metadata: { kind: 'screen' } });
   p.screenOut = call;
+  p.sendLevel = 0;
   const pc = call.peerConnection;
-  if (pc) {
-    const tune = () => {
-      if (pc.connectionState !== 'connected') return;
-      pc.getSenders().forEach(s => {
-        if (!s.track || s.track.kind !== 'video') return;
-        const params = s.getParameters();
-        if (!params.encodings || !params.encodings.length) params.encodings = [{}];
-        params.encodings[0].maxBitrate = currentQuality.bitrate;
-        params.encodings[0].maxFramerate = currentQuality.fps;
-        params.degradationPreference = currentQuality.fps >= 60 ? 'maintain-framerate' : 'balanced';
-        s.setParameters(params).catch(e => console.warn('setParameters', e));
-      });
-    };
-    pc.addEventListener('connectionstatechange', tune);
-  }
+  if (!pc) return;
+  let started = false, bad = 0, good = 0, prevLost = 0, prevSent = 0;
+  const loop = async () => {
+    if (p.screenOut !== call || pc.connectionState === 'closed') return;
+    if (pc.connectionState === 'connected') {
+      if (!started) { started = true; applyEncoding(pc, p.sendLevel); }
+      try {
+        const stats = await pc.getStats();
+        let lost = 0, sent = 0, avail = null;
+        stats.forEach(r => {
+          if (r.type === 'remote-inbound-rtp' && r.kind === 'video') lost += r.packetsLost || 0;
+          if (r.type === 'outbound-rtp' && r.kind === 'video') sent += r.packetsSent || 0;
+          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded' && r.availableOutgoingBitrate) avail = r.availableOutgoingBitrate;
+        });
+        const dl = lost - prevLost, ds = sent - prevSent;
+        prevLost = lost; prevSent = sent;
+        const loss = ds > 0 ? Math.max(0, dl) / ds : 0;
+        const need = currentQuality.bitrate * ADAPT_LEVELS[p.sendLevel].br;
+        const isBad = loss > 0.05 || (avail != null && avail < need * 0.6);
+        const nextUp = p.sendLevel > 0 ? currentQuality.bitrate * ADAPT_LEVELS[p.sendLevel - 1].br : 0;
+        const isGood = loss < 0.01 && (avail == null || avail > nextUp * 1.2);
+        bad = isBad ? bad + 1 : 0;
+        good = isGood ? good + 1 : 0;
+        if (bad >= 2 && p.sendLevel < ADAPT_LEVELS.length - 1) {
+          p.sendLevel++; bad = 0; applyEncoding(pc, p.sendLevel); paintSendQuality();
+        } else if (good >= 5 && p.sendLevel > 0) {
+          p.sendLevel--; good = 0; applyEncoding(pc, p.sendLevel); paintSendQuality();
+        }
+      } catch (e) { console.warn('adapt', e); }
+    }
+    setTimeout(loop, 2000);
+  };
+  loop();
+}
+
+// Mostra na sua prévia se a qualidade foi reduzida para alguém
+function paintSendQuality() {
+  const t = tileEl('__local__');
+  if (!t) return;
+  const reduced = [...peers.values()].filter(p => p.screenOut && p.sendLevel > 0);
+  const el = t.querySelector('.q');
+  if (!el) return;
+  el.textContent = reduced.length
+    ? '⚠️ Qualidade reduzida para: ' + reduced.map(p => `${p.name} (${ADAPT_LEVELS[p.sendLevel].label})`).join(', ')
+    : '';
 }
 
 // =====================================================================
@@ -746,6 +835,15 @@ function showTile(id, stream, isLocal) {
       };
       bar.append(lbl, r, val);
     }
+    if (isLocal) {
+      const q = document.createElement('span');
+      q.className = 'q';
+      q.title = 'A qualidade baixa sozinha para quem está com a rede lenta';
+      bar.appendChild(q);
+    }
+    const mut = document.createElement('span');
+    mut.className = 'tmut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
+    bar.appendChild(mut);
     const fs = document.createElement('button');
     fs.textContent = 'Tela cheia';
     fs.onclick = () => toggleFullscreen(t);
@@ -761,6 +859,7 @@ function showTile(id, stream, isLocal) {
     if (!isLocal) attachScreenAudio(getPeer(id), stream);
   }
   updateTileName(isLocal ? { id, name: $('nameInput').value.trim() } : getPeer(id));
+  if (!isLocal) paintMuted(getPeer(id));
   applyVolumes();
   $('empty').classList.add('hidden');
 }
@@ -818,7 +917,8 @@ function renderPeers() {
     dot.title = 'Qualidade da conexão';
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
     const spk = document.createElement('span'); spk.className = 'spk'; spk.textContent = '🔊';
-    top.append(dot, nm, spk);
+    const mut = document.createElement('span'); mut.className = 'mut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
+    top.append(dot, nm, spk, mut);
 
     const net = document.createElement('div');
     net.className = 'net';
@@ -842,6 +942,7 @@ function renderPeers() {
     li.append(top, net, lbl);
     ul.appendChild(li);
     paintNet(p);
+    paintMuted(p);
   }
   updateBadge();
 }
@@ -865,6 +966,19 @@ function heartbeatLoop() {
     }
   }
   setTimeout(heartbeatLoop, HEARTBEAT_MS);
+}
+
+function broadcast(msg) {
+  for (const p of peers.values()) {
+    if (p.conn && p.conn.open) { try { p.conn.send(msg); } catch {} }
+  }
+}
+
+function paintMuted(p) {
+  const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
+  if (li) li.classList.toggle('muted', !!p.muted);
+  const t = tileEl(p.id);
+  if (t) t.classList.toggle('muted', !!p.muted);
 }
 
 function sayGoodbye() {
@@ -967,6 +1081,8 @@ async function init() {
   $('noiseChk').checked = store.get('noise', true);
   $('echoChk').checked = store.get('echo', true);
   $('agcChk').checked = store.get('agc', false);
+  $('duckChk').checked = store.get('duck', true);
+  $('duckChk').onchange = () => { store.set('duck', $('duckChk').checked); applyVolumes(); };
   $('shareAudioChk').checked = store.get('shareAudio', true);
   $('qualitySelect').value = store.get('quality', '1080_30');
   $('micVolVal').textContent = $('micVol').value + '%';
@@ -992,6 +1108,7 @@ async function init() {
   $('hostBtn').onclick = hostRoom;
   $('joinBtn').onclick = joinRoom;
   $('leaveBtn').onclick = leaveRoom;
+  $('inviteBtn').onclick = copyInvite;
   $('roomInput').onkeydown = e => { if (e.key === 'Enter') joinRoom(); };
 
   $('micSelect').onchange = async () => { store.set('mic', $('micSelect').value); await openMic($('micSelect').value); };
@@ -1025,6 +1142,12 @@ async function init() {
   $('shareAudioChk').onchange = () => store.set('shareAudio', $('shareAudioChk').checked);
   $('qualitySelect').onchange = () => store.set('quality', $('qualitySelect').value);
   $('shareBtn').onclick = () => (screenStream ? stopShare() : startShare());
+
+  try {
+    window.native.onInvite(handleInvite);
+    const pending = await window.native.takePendingInvite();
+    if (pending) handleInvite(pending);
+  } catch (e) { console.warn('convite', e); }
 
   window.addEventListener('beforeunload', () => {
     stopShare();

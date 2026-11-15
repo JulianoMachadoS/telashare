@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Testes LOCAIS (várias janelas do app na mesma máquina). Ver README.
+  test:
+    name: Testes locais (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Testes (Windows)
+        if: runner.os == 'Windows'
+        run: npm test
+      - name: Testes (Linux, com tela virtual)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npx electron --no-sandbox test/local-e2e.js
+
+  # Gera o .exe no Windows de verdade (com ícone e metadados aplicados)
+  build:
+    name: Gerar TelaShare.exe
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TelaShare-exe
+          path: dist/TelaShare.exe
+          retention-days: 14
+
+  # Ao criar uma tag v*, publica a release com o .exe gerado acima
+  release:
+    name: Publicar release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: TelaShare-exe
+      - name: Criar ou atualizar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" TelaShare.exe --clobber
+          else
+            notes="release-notes/$TAG.md"
+            if [ -f "$notes" ]; then
+              gh release create "$TAG" TelaShare.exe --title "TelaShare $TAG" --notes-file "$notes"
+            else
+              gh release create "$TAG" TelaShare.exe --title "TelaShare $TAG" --generate-notes
+            fi
+          fi

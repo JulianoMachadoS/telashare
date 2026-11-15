@@ -1,14 +1,15 @@
 {
   "name": "telashare",
   "productName": "TelaShare",
-  "version": "1.2.0",
-  "description": "Compartilhamento de tela com áudio entre 2 ou mais computadores",
+  "version": "1.3.0",
+  "description": "TelaShare - compartilhamento de tela com áudio",
   "main": "main.js",
   "author": "TelaShare",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable --x64"
+    "dist": "electron-builder --win portable --x64",
+    "test": "electron test/local-e2e.js"
   },
   "dependencies": {
     "peerjs": "1.5.5"
@@ -26,14 +27,30 @@
       "index.html",
       "renderer.js",
       "style.css",
+      "build/icon.png",
       "node_modules/peerjs/dist/peerjs.min.js"
     ],
     "win": {
       "target": "portable",
-      "signAndEditExecutable": false
+      "icon": "build/icon.ico",
+      "signExecutable": false,
+      "legalTrademarks": "TelaShare"
     },
     "portable": {
       "artifactName": "TelaShare.exe"
-    }
+    },
+    "copyright": "Copyright © 2026 TelaShare",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "protocols": [
+      {
+        "name": "TelaShare",
+        "schemes": [
+          "telashare"
+        ]
+      }
+    ]
   }
 }

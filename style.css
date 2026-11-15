@@ -125,3 +125,10 @@ details summary { cursor: pointer; color: #949ba4; }
 #micMeter.low { background: #4e8a63; }
 button.active { background: #248046; }
 .tile .bar .pct { font-size: 12px; color: #949ba4; min-width: 36px; }
+
+/* mudo */
+#peerList .mut, .tile .tmut { display: none; font-size: 12px; }
+#peerList li.muted .mut, .tile.muted .tmut { display: inline; }
+#peerList li.muted .nm { color: #949ba4; }
+/* qualidade adaptativa na prévia */
+.tile .bar .q { font-size: 11px; color: #f0b232; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 50%; }
