@@ -4,8 +4,13 @@
   "version": "1.3.0",
   "description": "TelaShare - compartilhamento de tela com áudio",
   "main": "main.js",
-  "author": "TelaShare",
-  "license": "MIT",
+  "author": "Juliano Machado da Silva (https://github.com/JulianoMachadoS)",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JulianoMachadoS/telashare.git"
+  },
+  "homepage": "https://github.com/JulianoMachadoS/telashare#readme",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win portable --x64",
@@ -28,18 +33,21 @@
       "renderer.js",
       "style.css",
       "build/icon.png",
-      "node_modules/peerjs/dist/peerjs.min.js"
+      "node_modules/peerjs/dist/peerjs.min.js",
+      "LICENSE",
+      "NOTICE",
+      "node_modules/peerjs/LICENSE"
     ],
     "win": {
       "target": "portable",
       "icon": "build/icon.ico",
       "signExecutable": false,
-      "legalTrademarks": "TelaShare"
+      "legalTrademarks": "TelaShare - AGPL-3.0-or-later"
     },
     "portable": {
       "artifactName": "TelaShare.exe"
     },
-    "copyright": "Copyright © 2026 TelaShare",
+    "copyright": "Copyright (C) 2026 Juliano Machado da Silva",
     "directories": {
       "buildResources": "build",
       "output": "dist"

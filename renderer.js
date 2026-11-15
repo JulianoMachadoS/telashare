@@ -1,3 +1,22 @@
+/*
+ * TelaShare - Compartilhamento de tela e áudio P2P
+ * Projeto original: https://github.com/JulianoMachadoS/telashare
+ * Copyright (C) 2026 Juliano Machado da Silva
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see https://www.gnu.org/licenses/.
+ */
+
 'use strict';
 /* TelaShare - compartilhamento de tela + áudio em malha P2P (WebRTC via PeerJS) */
 
@@ -1066,6 +1085,52 @@ async function netLoop() {
 }
 
 // =====================================================================
+// SOBRE (informações, licenças e repositório)
+// =====================================================================
+const licenseCache = {};
+async function loadLicense(key) {
+  if (!(key in licenseCache)) {
+    let t = null;
+    try { t = await window.native.readLicense(key); } catch {}
+    licenseCache[key] = t || 'Texto não encontrado. Veja a licença em https://github.com/JulianoMachadoS/telashare';
+  }
+  return licenseCache[key];
+}
+
+async function showLicenseTab(key) {
+  document.querySelectorAll('#about .tab').forEach(b => b.classList.toggle('active', b.dataset.lic === key));
+  const third = key === 'third';
+  $('thirdParty').classList.toggle('hidden', !third);
+  $('licenseText').classList.toggle('hidden', third);
+  if (!third) {
+    $('licenseText').textContent = await loadLicense(key);
+    $('licenseText').scrollTop = 0;
+  }
+}
+
+function openAbout() {
+  $('about').classList.remove('hidden');
+  showLicenseTab('license');
+}
+function closeAbout() { $('about').classList.add('hidden'); }
+
+function initAbout() {
+  $('aboutBtn').onclick = openAbout;
+  $('aboutClose').onclick = closeAbout;
+  $('aboutX').onclick = closeAbout;
+  $('about').addEventListener('click', e => { if (e.target === $('about')) closeAbout(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('about').classList.contains('hidden')) closeAbout(); });
+  document.querySelectorAll('#about [data-link]').forEach(b => (b.onclick = () => window.native.openLink(b.dataset.link)));
+  document.querySelectorAll('#about [data-lic]').forEach(b => (b.onclick = () => showLicenseTab(b.dataset.lic)));
+  document.querySelectorAll('#about [data-lic-view]').forEach(b => (b.onclick = async () => {
+    $('thirdText').classList.remove('hidden');
+    $('thirdText').textContent = await loadLicense(b.dataset.licView);
+    $('thirdText').scrollTop = 0;
+  }));
+  $('chromiumLic').onclick = () => window.native.openChromiumLicenses();
+}
+
+// =====================================================================
 // INICIALIZAÇÃO
 // =====================================================================
 async function init() {
@@ -1109,6 +1174,14 @@ async function init() {
   $('joinBtn').onclick = joinRoom;
   $('leaveBtn').onclick = leaveRoom;
   $('inviteBtn').onclick = copyInvite;
+  $('projectLink').onclick = e => { e.preventDefault(); window.native.openProject && window.native.openProject(); };
+  initAbout();
+  $('licenseLink').onclick = e => { e.preventDefault(); window.native.openLicense && window.native.openLicense(); };
+  try {
+    const v = 'v' + (await window.native.getVersion());
+    $('appVersion').textContent = v;
+    $('aboutVersion').textContent = v;
+  } catch {}
   $('roomInput').onkeydown = e => { if (e.key === 'Enter') joinRoom(); };
 
   $('micSelect').onchange = async () => { store.set('mic', $('micSelect').value); await openMic($('micSelect').value); };

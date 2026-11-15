@@ -1,4 +1,23 @@
 /*
+ * TelaShare - Compartilhamento de tela e áudio P2P
+ * Projeto original: https://github.com/JulianoMachadoS/telashare
+ * Copyright (C) 2026 Juliano Machado da Silva
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see https://www.gnu.org/licenses/.
+ */
+
+/*
  * TelaShare - testes LOCAIS de ponta a ponta
  * ============================================
  * ATENÇÃO: são testes LOCAIS. Rodam várias janelas do app no MESMO computador,
@@ -21,6 +40,16 @@ ipcMain.handle('copy-text', (_e, t) => { lastCopied = String(t); return true; })
 ipcMain.handle('take-pending-invite', () => null);
 ipcMain.handle('get-sources', () => []);
 ipcMain.handle('select-source', () => true);
+ipcMain.handle('get-version', () => '0.0.0-teste');
+ipcMain.handle('open-project', () => true);
+ipcMain.handle('open-license', () => true);
+const openedLinks = [];
+ipcMain.handle('open-link', (_e, k) => { openedLinks.push(k); return true; });
+ipcMain.handle('open-chromium-licenses', () => true);
+ipcMain.handle('read-license', (_e, k) => {
+  const files = { license: 'LICENSE', notice: 'NOTICE', peerjs: 'node_modules/peerjs/LICENSE' };
+  try { return require('fs').readFileSync(path.join(APP, files[k]), 'utf8'); } catch { return null; }
+});
 const path = require('path');
 const APP = path.join(__dirname, '..');
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
@@ -244,6 +273,35 @@ app.whenReady().then(async () => {
     check('16a. Convite copiado contém o link da sala', copied.includes('telashare://sala/' + room), copied.split('\n')[1]);
     check('16b. Abrir o convite entra na sala', ok);
     destroy([A, C]); }
+
+  // 17. Aviso legal visível (AGPLv3, Seção 5d)
+  { const A = mk(); await ready([A]);
+    const t = await js(A, 'document.getElementById("legal").innerText');
+    check('17. Aviso legal visível com licença e link do projeto original',
+      /AGPLv3/.test(t) && /github\.com\/JulianoMachadoS\/telashare/.test(t) && /Juliano Machado da Silva/.test(t), t.replace(/\n/g, ' | '));
+    destroy([A]); }
+
+  // 18. Botão ℹ️: janela Sobre com licenças e link do repositório
+  { const A = mk(); await ready([A]);
+    await js(A, 'aboutBtn.click(); 1'); await wait(500);
+    const visible = await js(A, '!about.classList.contains("hidden")');
+    const head = await js(A, 'about.innerText');
+    const lic = await js(A, 'licenseText.textContent.slice(0, 200)');
+    await js(A, 'document.querySelector("[data-lic=notice]").click(); 1'); await wait(300);
+    const notice = await js(A, 'licenseText.textContent');
+    await js(A, 'document.querySelector("[data-lic=third]").click(); 1'); await wait(200);
+    await js(A, 'document.querySelector("[data-lic-view=peerjs]").click(); 1'); await wait(300);
+    const peer = await js(A, 'thirdText.textContent');
+    await js(A, 'document.querySelector("#about [data-link=project]").click(); 1'); await wait(300);
+    await js(A, 'document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); 1'); await wait(200);
+    const closed = await js(A, 'about.classList.contains("hidden")');
+    check('18a. Botão ℹ️ abre a janela Sobre com versão e repositório', visible && /TelaShare v/.test(head) && /github\.com\/JulianoMachadoS\/telashare/.test(head));
+    check('18b. Mostra a licença AGPLv3 completa', /GNU AFFERO GENERAL PUBLIC LICENSE/.test(lic));
+    check('18c. Mostra o NOTICE', /Projeto original/.test(notice) && /Juliano Machado da Silva/.test(notice));
+    check('18d. Mostra a licença de terceiros (PeerJS, MIT)', /MIT License/.test(peer));
+    check('18e. Botão do repositório pede para abrir o link do projeto pai', openedLinks.includes('project'));
+    check('18f. Esc fecha a janela Sobre', closed);
+    destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.every(Boolean) ? 0 : 1);
 });

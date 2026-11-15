@@ -1,4 +1,22 @@
 <!doctype html>
+<!--
+  TelaShare - Compartilhamento de tela e áudio P2P
+  Projeto original: https://github.com/JulianoMachadoS/telashare
+  Copyright (C) 2026 Juliano Machado da Silva
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU Affero General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU Affero General Public License for more details.
+
+  You should have received a copy of the GNU Affero General Public License
+  along with this program. If not, see https://www.gnu.org/licenses/.
+-->
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
@@ -11,8 +29,11 @@
   <aside id="sidebar">
     <div class="header">
       <h1>TelaShare</h1>
-      <div id="connBadge" class="badge off" title="Status da conexão">
-        <span class="bdot"></span><span id="connText">Desconectado</span>
+      <div class="header-right">
+        <div id="connBadge" class="badge off" title="Status da conexão">
+          <span class="bdot"></span><span id="connText">Desconectado</span>
+        </div>
+        <button id="aboutBtn" class="icon-btn" title="Sobre o TelaShare, licenças e repositório" aria-label="Sobre">i</button>
       </div>
     </div>
 
@@ -107,6 +128,15 @@
       <h2>Participantes</h2>
       <ul id="peerList"><li class="hint">Ninguém conectado</li></ul>
     </section>
+
+    <!-- Avisos legais (AGPLv3, Seção 5d) -->
+    <footer id="legal">
+      <div><strong>TelaShare</strong> <span id="appVersion"></span></div>
+      <div>Copyright (C) 2026 Juliano Machado da Silva</div>
+      <div>Software livre sob a <a href="#" id="licenseLink">GNU AGPLv3</a>, sem garantia.</div>
+      <div>Projeto original e código-fonte:<br>
+        <a href="#" id="projectLink">github.com/JulianoMachadoS/telashare</a></div>
+    </footer>
   </aside>
 
   <main id="stage">
@@ -116,6 +146,57 @@
     </div>
     <div id="grid"></div>
   </main>
+
+  <!-- Sobre: informações, licenças e repositório -->
+  <div id="about" class="modal hidden" role="dialog" aria-labelledby="aboutTitle">
+    <div class="modal-box about-box">
+      <button id="aboutX" class="about-x" title="Fechar" aria-label="Fechar">✕</button>
+      <div class="about-scroll">
+      <div class="about-head">
+        <img src="build/icon.png" alt="" width="64" height="64">
+        <div>
+          <h2 id="aboutTitle" class="about-title">TelaShare <span id="aboutVersion"></span></h2>
+          <p class="about-desc">Compartilhamento de tela e áudio P2P</p>
+          <p class="hint">Copyright (C) 2026 Juliano Machado da Silva</p>
+        </div>
+      </div>
+
+      <div class="about-links">
+        <button data-link="project" class="primary">🔗 Projeto pai no GitHub</button>
+        <button data-link="releases">⬇️ Versões e downloads</button>
+        <button data-link="issues">🐞 Reportar um problema</button>
+      </div>
+      <p class="hint about-url">github.com/JulianoMachadoS/telashare</p>
+
+      <h3>Licença</h3>
+      <p class="about-text">
+        O TelaShare é <strong>software livre</strong> sob a <strong>GNU Affero General Public License v3.0</strong>
+        (<code>AGPL-3.0-or-later</code>). Você pode usar, estudar, modificar e distribuir, desde que o código
+        dos projetos derivados também seja aberto sob a AGPLv3 e que a referência ao projeto pai seja mantida.
+        Este programa é distribuído <strong>sem nenhuma garantia</strong>.
+      </p>
+      <div class="about-tabs">
+        <button data-lic="license" class="tab active">Licença AGPLv3</button>
+        <button data-lic="notice" class="tab">NOTICE</button>
+        <button data-lic="third" class="tab">Componentes de terceiros</button>
+      </div>
+      <pre id="licenseText" class="license-text"></pre>
+      <div id="thirdParty" class="third hidden">
+        <table>
+          <tr><th>Componente</th><th>Licença</th><th></th></tr>
+          <tr><td>PeerJS</td><td>MIT</td><td><button data-lic-view="peerjs">Ver texto</button> <button data-link="peerjs">Site</button></td></tr>
+          <tr><td>Electron</td><td>MIT</td><td><button data-lic-view="electron">Ver texto</button> <button data-link="electron">Site</button></td></tr>
+          <tr><td>Chromium</td><td>BSD e outras</td><td><button id="chromiumLic">Abrir licenças</button></td></tr>
+        </table>
+        <pre id="thirdText" class="license-text short hidden"></pre>
+      </div>
+      </div>
+
+      <div class="row right about-foot">
+        <button id="aboutClose">Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Seletor de tela -->
   <div id="picker" class="modal hidden">

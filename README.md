@@ -75,6 +75,14 @@ mostra para quem a qualidade foi reduzida.
 
 O app guarda suas configurações para a próxima vez.
 
+## ℹ️ Sobre o app
+
+O botão **i** no topo, ao lado do indicador de conexão, abre a janela **Sobre**, com:
+- versão instalada e copyright;
+- botões para o **projeto pai no GitHub**, para as **versões/downloads** e para **reportar um problema**;
+- a **licença AGPLv3** completa, o **NOTICE** e as **licenças dos componentes de terceiros**
+  (PeerJS, Electron e Chromium).
+
 ## 📶 Indicador de conexão
 
 No topo, ao lado do nome do app:
@@ -246,6 +254,17 @@ git tag v1.3.0 && git push origin v1.3.0
 O CI gera o `.exe` e cria a Release sozinho. Se existir `release-notes/<tag>.md`, ele é usado como
 descrição da release.
 
-## 📄 Licença
+## 📄 Licença e Direitos de Uso
 
-MIT
+Copyright (C) 2026 **Juliano Machado da Silva** — [TelaShare](https://github.com/JulianoMachadoS/telashare)
+
+Este projeto é distribuído sob a licença **GNU Affero General Public License v3.0 (AGPLv3)**. Veja os arquivos [LICENSE](LICENSE) e [NOTICE](NOTICE) para os termos completos.
+
+### Resumo das regras de uso (TL;DR):
+Você é livre para usar, estudar, modificar e distribuir este software ou qualquer um de seus módulos (`renderer.js`, lógica WebRTC, processamento de áudio, etc.), **desde que cumpra obrigatoriamente estas condições**:
+
+1. **Gratuito e Código Aberto Sempre (Copyleft Forte):** Qualquer projeto, fork ou sistema de terceiros que utilize código ou módulos do TelaShare (seja como aplicativo desktop ou rodando em servidor/web) **deve ter seu código-fonte completo aberto ao público** sob a mesma licença **AGPLv3**. Não é permitido fechar o código em software proprietário.
+2. **Referência Obrigatória ao Projeto Pai:** Você deve manter os avisos de copyright originais em todos os arquivos e referenciar de forma clara e visível na documentação e na interface que o projeto deriva do **TelaShare**, incluindo o link oficial: [https://github.com/JulianoMachadoS/telashare](https://github.com/JulianoMachadoS/telashare).
+3. **Registro de Modificações:** Caso altere arquivos originais, você deve documentar nos arquivos que eles foram modificados e a data da alteração.
+
+> **Nota:** as versões **v1.0.0 a v1.2.0** foram publicadas sob a licença MIT. A partir da **v1.3.0**, o projeto é AGPLv3.

@@ -1,0 +1,10 @@
+TelaShare - Sistema de Áudio e Compartilhamento de Tela P2P
+Copyright (C) 2026 Juliano Machado da Silva
+
+Este software é distribuído sob a licença GNU Affero General Public License v3.0 (AGPLv3).
+Projeto original (Projeto Pai): [https://github.com/JulianoMachadoS/telashare](https://github.com/JulianoMachadoS/telashare)
+
+Qualquer distribuição, modificação, fork ou integração deste software (ou de qualquer um de seus módulos, como a lógica WebRTC, controle de áudio ou interface) em projetos de terceiros — seja como aplicação desktop, biblioteca interna ou serviço web — deve obrigatoriamente:
+1. Manter este aviso e os cabeçalhos de copyright intactos.
+2. Disponibilizar o código-fonte completo do projeto derivado sob a licença GNU AGPLv3.
+3. Manter a referência visível ao projeto pai (TelaShare) com o link para [https://github.com/JulianoMachadoS/telashare](https://github.com/JulianoMachadoS/telashare) na documentação e na interface do usuário (conforme Seção 5d da AGPLv3).

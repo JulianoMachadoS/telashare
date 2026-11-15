@@ -1,11 +1,51 @@
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard } = require('electron');
+/*
+ * TelaShare - Compartilhamento de tela e áudio P2P
+ * Projeto original: https://github.com/JulianoMachadoS/telashare
+ * Copyright (C) 2026 Juliano Machado da Silva
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program. If not, see https://www.gnu.org/licenses/.
+ */
+
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // Mostra os IPs locais reais nas conexões WebRTC (em vez de nomes .local ocultos).
 // Necessário para conectar via VPN (Radmin/Tailscale/ZeroTier) e rede local.
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 const PROTOCOL = 'telashare';
+const PROJECT_URL = 'https://github.com/JulianoMachadoS/telashare';
+const LICENSE_URL = 'https://www.gnu.org/licenses/agpl-3.0.html';
+// Endereços que a janela "Sobre" pode abrir no navegador (nada fora desta lista)
+const EXTERNAL_LINKS = {
+  project: PROJECT_URL,
+  issues: PROJECT_URL + '/issues',
+  releases: PROJECT_URL + '/releases',
+  license: LICENSE_URL,
+  peerjs: 'https://github.com/peers/peerjs',
+  electron: 'https://github.com/electron/electron',
+  chromium: 'https://www.chromium.org/'
+};
+// Textos de licença que a janela "Sobre" pode mostrar
+const LICENSE_FILES = {
+  license: () => path.join(__dirname, 'LICENSE'),
+  notice: () => path.join(__dirname, 'NOTICE'),
+  peerjs: () => path.join(__dirname, 'node_modules', 'peerjs', 'LICENSE'),
+  // vêm junto com o Electron, ao lado do executável
+  electron: () => path.join(path.dirname(process.execPath), 'LICENSE.electron.txt')
+};
 let win;
 let chosenSourceId = null;
 let chosenWithAudio = true;
@@ -78,6 +118,9 @@ function createWindow() {
     }
   });
   win.setMenu(null);
+  // links nunca abrem dentro do app
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', e => e.preventDefault());
   win.loadFile('index.html');
 }
 
@@ -120,6 +163,25 @@ app.whenReady().then(() => {
     chosenWithAudio = !!withAudio;
     return true;
   });
+
+  // Avisos legais (AGPLv3, Seção 5d): só abre os endereços fixos do projeto e da licença
+  ipcMain.handle('open-project', () => shell.openExternal(PROJECT_URL));
+  ipcMain.handle('open-license', () => shell.openExternal(LICENSE_URL));
+  ipcMain.handle('open-link', (_e, key) => {
+    if (EXTERNAL_LINKS[key]) shell.openExternal(EXTERNAL_LINKS[key]);
+  });
+  ipcMain.handle('read-license', (_e, key) => {
+    const f = LICENSE_FILES[key];
+    if (!f) return null;
+    try { return fs.readFileSync(f(), 'utf8'); } catch { return null; }
+  });
+  // licenças do Chromium (HTML grande) abrem no navegador a partir do arquivo local
+  ipcMain.handle('open-chromium-licenses', async () => {
+    const f = path.join(path.dirname(process.execPath), 'LICENSES.chromium.html');
+    if (fs.existsSync(f)) return shell.openPath(f);
+    return shell.openExternal(EXTERNAL_LINKS.chromium);
+  });
+  ipcMain.handle('get-version', () => app.getVersion());
 
   ipcMain.handle('copy-text', (_e, text) => { clipboard.writeText(String(text)); return true; });
 
