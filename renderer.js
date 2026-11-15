@@ -32,10 +32,14 @@ let peer = null;
 let isHost = false;
 let roomCode = '';
 let leaving = false;
-const peers = new Map(); // id -> { id, name, conn, micCall, screenOut, screenIn, audioEl, analyser, vol, screenVol }
+const peers = new Map(); // id -> { id, name, conn, micCall, screenOut, screenIn, audioEl, voiceSrc, voiceGain, analyser, screenSrc, screenGainNode, vol, screenVol, net }
 
-let audioCtx, micGain, micAnalyser, micDest;
-let micRaw = null, micSource = null, micMuted = false;
+// Todo áudio passa pelo Web Audio, o que permite ganho acima de 100%:
+//  entrada: mic -> micGain -> micLimiter -> muteGain -> (envio | medidor | monitor)
+//  saída:   vozes/telas -> ganho por pessoa -> outMaster -> outLimiter -> alto-falante
+let audioCtx, micGain, micLimiter, muteGain, micAnalyser, micDest, monitorGain;
+let outMaster, outLimiter;
+let micRaw = null, micSource = null, micMuted = false, monitoring = false, recording = false;
 
 let screenRaw = null, screenStream = null, screenAudioNode = null, screenGain = null;
 let currentQuality = QUALITY['1080_30'];
@@ -52,28 +56,74 @@ const store = {
 // =====================================================================
 // ÁUDIO LOCAL (microfone)
 // =====================================================================
+function makeLimiter(threshold) {
+  const c = audioCtx.createDynamicsCompressor();
+  c.threshold.value = threshold;
+  c.knee.value = 0;
+  c.ratio.value = 20;
+  c.attack.value = 0.002;
+  c.release.value = 0.15;
+  return c;
+}
+
+// Proteção final contra distorção: até 0,8 passa intacto e acima disso arredonda suavemente,
+// nunca passando de 0,98. Pega os picos rápidos que o limitador deixa escapar.
+// (o ganho 0,5 antes do WaveShaper faz a curva cobrir entradas de -2 a +2)
+function makeSafety() {
+  const pre = audioCtx.createGain();
+  pre.gain.value = 0.5;
+  const shaper = audioCtx.createWaveShaper();
+  const N = 4096, curve = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const x = (i / (N - 1)) * 4 - 2;
+    const a = Math.abs(x);
+    const y = a <= 0.8 ? a : 0.8 + 0.18 * Math.tanh((a - 0.8) / 0.18);
+    curve[i] = Math.sign(x) * y;
+  }
+  shaper.curve = curve;
+  shaper.oversample = '2x';
+  pre.connect(shaper);
+  return { input: pre, output: shaper };
+}
+
 function initAudio() {
-  audioCtx = new AudioContext();
+  audioCtx = new AudioContext({ latencyHint: 'interactive' });
+
+  // saída
+  outMaster = audioCtx.createGain();
+  outLimiter = makeLimiter(-3);
+  const outSafe = makeSafety();
+  outMaster.connect(outLimiter).connect(outSafe.input);
+  outSafe.output.connect(audioCtx.destination);
+
+  // entrada
   micGain = audioCtx.createGain();
+  micLimiter = makeLimiter(-3);
+  muteGain = audioCtx.createGain();
   micAnalyser = audioCtx.createAnalyser();
-  micAnalyser.fftSize = 512;
+  micAnalyser.fftSize = 1024;
   micDest = audioCtx.createMediaStreamDestination();
-  micGain.connect(micAnalyser);
-  micGain.connect(micDest);
+  monitorGain = audioCtx.createGain();
+  monitorGain.gain.value = 0;
+  const micSafe = makeSafety();
+  micGain.connect(micLimiter).connect(micSafe.input);
+  micSafe.output.connect(muteGain);
+  muteGain.connect(micAnalyser);
+  muteGain.connect(micDest);
+  muteGain.connect(monitorGain).connect(outMaster);
   micGain.gain.value = $('micVol').value / 100;
 }
 
 async function openMic(deviceId) {
   if (micSource) { micSource.disconnect(); micSource = null; }
   if (micRaw) { micRaw.getTracks().forEach(t => t.stop()); micRaw = null; }
-  const nr = $('noiseChk').checked;
   try {
     micRaw = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: nr,
-        noiseSuppression: nr,
-        autoGainControl: false
+        echoCancellation: $('echoChk').checked,
+        noiseSuppression: $('noiseChk').checked,
+        autoGainControl: $('agcChk').checked
       }
     });
     micSource = audioCtx.createMediaStreamSource(micRaw);
@@ -84,9 +134,68 @@ async function openMic(deviceId) {
   }
 }
 
+// ---------- testes de áudio ----------
+function toggleMonitor() {
+  monitoring = !monitoring;
+  monitorGain.gain.setTargetAtTime(monitoring ? 1 : 0, audioCtx.currentTime, 0.02);
+  const b = $('monitorBtn');
+  b.textContent = monitoring ? '⏹️ Parar de me ouvir' : '🎧 Ouvir meu microfone';
+  b.classList.toggle('active', monitoring);
+}
+
+async function recordTest() {
+  if (recording) return;
+  if (monitoring) toggleMonitor();
+  if (audioCtx.state !== 'running') await audioCtx.resume();
+  recording = true;
+  const b = $('recBtn');
+  const chunks = [];
+  const rec = new MediaRecorder(micDest.stream);
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  rec.onstop = async () => {
+    try {
+      const buf = await audioCtx.decodeAudioData(await new Blob(chunks).arrayBuffer());
+      const src = audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(outMaster);
+      b.textContent = '🔊 Reproduzindo gravação...';
+      src.onended = () => { recording = false; b.textContent = '⏺️ Gravar teste (5s) e ouvir'; b.classList.remove('active'); };
+      src.start();
+    } catch (e) {
+      recording = false;
+      b.textContent = '⏺️ Gravar teste (5s) e ouvir';
+      b.classList.remove('active');
+      alert('Não foi possível reproduzir a gravação: ' + e.message);
+    }
+  };
+  rec.start();
+  b.classList.add('active');
+  for (let i = 5; i > 0; i--) {
+    b.textContent = `🔴 Gravando... fale algo (${i})`;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  rec.stop();
+}
+
+async function testOutput() {
+  if (audioCtx.state !== 'running') await audioCtx.resume();
+  const t = audioCtx.currentTime;
+  [523.25, 659.25, 783.99].forEach((f, i) => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0, t + i * 0.18);
+    g.gain.linearRampToValueAtTime(0.25, t + i * 0.18 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.18 + 0.5);
+    o.connect(g).connect(outMaster);
+    o.start(t + i * 0.18);
+    o.stop(t + i * 0.18 + 0.55);
+  });
+}
+
 function setMuted(m) {
   micMuted = m;
-  micDest.stream.getAudioTracks().forEach(t => (t.enabled = !m));
+  muteGain.gain.setTargetAtTime(m ? 0 : 1, audioCtx.currentTime, 0.01);
   const b = $('muteBtn');
   b.textContent = m ? '🔇 Microfone mudo' : '🎤 Microfone ligado';
   b.classList.toggle('muted', m);
@@ -110,21 +219,29 @@ function fillSelect(sel, list, wanted) {
   if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
 }
 
-function rms(analyser) {
+function levels(analyser) {
   const buf = new Float32Array(analyser.fftSize);
   analyser.getFloatTimeDomainData(buf);
-  let s = 0;
-  for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
-  return Math.sqrt(s / buf.length);
+  let sum = 0, peak = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const v = Math.abs(buf[i]);
+    sum += v * v;
+    if (v > peak) peak = v;
+  }
+  return { rms: Math.sqrt(sum / buf.length), peak };
 }
 
 function meterLoop() {
-  const level = micMuted ? 0 : Math.min(1, rms(micAnalyser) * 4);
-  $('micMeter').style.width = (level * 100).toFixed(0) + '%';
+  const { rms, peak } = levels(micAnalyser);
+  const level = Math.min(1, rms * 5);
+  const m = $('micMeter');
+  m.style.width = (level * 100).toFixed(0) + '%';
+  m.classList.toggle('hot', peak > 0.95);
+  m.classList.toggle('low', !micMuted && level < 0.08);
   for (const p of peers.values()) {
     if (!p.analyser) continue;
-    const dot = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"] .dot`);
-    if (dot) dot.classList.toggle('speaking', rms(p.analyser) > 0.02);
+    const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
+    if (li) li.classList.toggle('speaking', levels(p.analyser).rms > 0.015);
   }
   requestAnimationFrame(meterLoop);
 }
@@ -132,26 +249,23 @@ function meterLoop() {
 // =====================================================================
 // SAÍDA (volumes e dispositivo)
 // =====================================================================
-function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function setGain(node, v) {
+  if (node) node.gain.setTargetAtTime(v, audioCtx.currentTime, 0.02);
+}
 
 function applyVolumes() {
+  setGain(outMaster, outVolume);
   for (const p of peers.values()) {
-    if (p.audioEl) p.audioEl.volume = clamp01(p.vol * outVolume);
-    const v = tileVideo(p.id);
-    if (v) v.volume = clamp01(p.screenVol * outVolume);
+    setGain(p.voiceGain, p.vol);
+    setGain(p.screenGainNode, p.screenVol);
   }
 }
 
-function applySink(el) {
-  if (outDeviceId && el.setSinkId) el.setSinkId(outDeviceId).catch(e => console.warn('setSinkId', e));
-}
-
-function applySinkAll() {
-  for (const p of peers.values()) {
-    if (p.audioEl) applySink(p.audioEl);
-    const v = tileVideo(p.id);
-    if (v) applySink(v);
-  }
+async function setOutputDevice(id) {
+  outDeviceId = id;
+  if (!audioCtx.setSinkId) return;
+  try { await audioCtx.setSinkId(id === 'default' ? '' : id); }
+  catch (e) { console.warn('setSinkId', e); }
 }
 
 // =====================================================================
@@ -309,6 +423,7 @@ function enterRoom(room) {
 function leaveRoom() {
   leaving = true;
   stopShare();
+  sayGoodbye();
   for (const id of [...peers.keys()]) removePeer(id);
   if (peer) { peer.destroy(); peer = null; }
   isHost = false;
@@ -323,7 +438,7 @@ function lockForm(lock) {
   ['hostBtn', 'joinBtn', 'nameInput', 'roomInput'].forEach(id => ($(id).disabled = lock));
 }
 
-function setStatus(t) { $('status').textContent = t; }
+function setStatus(t) { $('status').textContent = t; if ($('connBadge')) updateBadge(); }
 function updateStatus() {
   const n = [...peers.values()].filter(p => p.conn && p.conn.open).length;
   setStatus((isHost ? 'Você é o anfitrião. ' : '') + `${n} pessoa(s) conectada(s).`);
@@ -333,7 +448,8 @@ function getPeer(id) {
   let p = peers.get(id);
   if (!p) {
     p = { id, name: '...', conn: null, micCall: null, screenOut: null, screenIn: null,
-          audioEl: null, analyser: null, vol: 1, screenVol: 1 };
+          audioEl: null, voiceSrc: null, voiceGain: null, analyser: null,
+          screenSrc: null, screenGainNode: null, vol: 1, screenVol: 1, net: null };
     peers.set(id, p);
   }
   return p;
@@ -352,6 +468,7 @@ function setupConn(conn, outgoing) {
     const p = getPeer(conn.peer);
     if (p.conn && p.conn !== conn && p.conn.open) { conn.close(); return; }
     p.conn = conn;
+    p.lastSeen = Date.now();
     conn.send({ type: 'hello', name: $('nameInput').value.trim() });
 
     if (isHost) {
@@ -370,10 +487,21 @@ function setupConn(conn, outgoing) {
 
   conn.on('data', msg => {
     if (!msg || typeof msg !== 'object') return;
-    const p = getPeer(conn.peer);
+    const p = peers.get(conn.peer);
+    if (!p || p.conn !== conn) return;
+    p.lastSeen = Date.now();
     switch (msg.type) {
+      case 'ping':
+        break;
+      case 'bye':
+        removePeer(p.id);
+        break;
       case 'hello':
         p.name = String(msg.name || 'Sem nome').slice(0, 24);
+        // volumes salvos para esta pessoa (pelo nome)
+        p.vol = store.get('pvol_' + p.name, p.vol);
+        p.screenVol = store.get('psvol_' + p.name, p.screenVol);
+        applyVolumes();
         renderPeers();
         updateTileName(p);
         break;
@@ -403,6 +531,7 @@ function removePeer(id) {
   [p.micCall, p.screenOut, p.screenIn].forEach(c => { try { c && c.close(); } catch {} });
   try { p.conn && p.conn.close(); } catch {}
   if (p.audioEl) { p.audioEl.srcObject = null; p.audioEl.remove(); }
+  [p.voiceSrc, p.voiceGain].forEach(n => { try { n && n.disconnect(); } catch {} });
   removeTile(id);
   peers.delete(id);
   renderPeers();
@@ -437,23 +566,29 @@ function attachMicCall(call) {
   if (p.micCall && p.micCall !== call) { try { p.micCall.close(); } catch {} }
   p.micCall = call;
   call.on('stream', stream => {
+    if (p.voiceStream === stream) return;
+    p.voiceStream = stream;
+    // O Chrome só entrega áudio WebRTC remoto ao Web Audio se o stream também estiver
+    // ligado a um elemento de mídia, então fica num <audio> mudo e escondido.
     if (!p.audioEl) {
       p.audioEl = document.createElement('audio');
       p.audioEl.autoplay = true;
+      p.audioEl.muted = true;
       p.audioEl.style.display = 'none';
       document.body.appendChild(p.audioEl);
     }
-    if (p.audioEl.srcObject !== stream) {
-      p.audioEl.srcObject = stream;
-      applySink(p.audioEl);
-      p.audioEl.play().catch(() => {});
-      try {
-        const src = audioCtx.createMediaStreamSource(stream);
-        p.analyser = audioCtx.createAnalyser();
-        p.analyser.fftSize = 512;
-        src.connect(p.analyser);
-      } catch {}
+    p.audioEl.srcObject = stream;
+    p.audioEl.play().catch(() => {});
+    if (p.voiceSrc) { try { p.voiceSrc.disconnect(); } catch {} }
+    if (!p.voiceGain) {
+      p.voiceGain = audioCtx.createGain();
+      p.voiceGain.connect(outMaster);
+      p.analyser = audioCtx.createAnalyser();
+      p.analyser.fftSize = 512;
     }
+    p.voiceSrc = audioCtx.createMediaStreamSource(stream);
+    p.voiceSrc.connect(p.voiceGain);
+    p.voiceSrc.connect(p.analyser);
     applyVolumes();
   });
 }
@@ -585,7 +720,7 @@ function showTile(id, stream, isLocal) {
 
     const v = document.createElement('video');
     v.autoplay = true; v.playsInline = true;
-    v.muted = isLocal;
+    v.muted = true; // o áudio da tela toca pelo Web Audio (permite passar de 100%)
     v.ondblclick = () => toggleFullscreen(t);
 
     const bar = document.createElement('div');
@@ -598,10 +733,18 @@ function showTile(id, stream, isLocal) {
       const p = getPeer(id);
       const lbl = document.createElement('span'); lbl.textContent = '🔊';
       const r = document.createElement('input');
-      r.type = 'range'; r.min = 0; r.max = 100; r.value = Math.round(p.screenVol * 100);
+      r.type = 'range'; r.min = 0; r.max = 400; r.step = 5; r.value = Math.round(p.screenVol * 100);
       r.title = 'Volume do áudio desta tela';
-      r.oninput = () => { p.screenVol = r.value / 100; applyVolumes(); };
-      bar.append(lbl, r);
+      const val = document.createElement('span');
+      val.className = 'pct';
+      val.textContent = r.value + '%';
+      r.oninput = () => {
+        p.screenVol = r.value / 100;
+        val.textContent = r.value + '%';
+        store.set('psvol_' + p.name, p.screenVol);
+        applyVolumes();
+      };
+      bar.append(lbl, r, val);
     }
     const fs = document.createElement('button');
     fs.textContent = 'Tela cheia';
@@ -614,12 +757,25 @@ function showTile(id, stream, isLocal) {
   const v = t.querySelector('video');
   if (v.srcObject !== stream) {
     v.srcObject = stream;
-    if (!isLocal) applySink(v);
     v.play().catch(() => {});
+    if (!isLocal) attachScreenAudio(getPeer(id), stream);
   }
   updateTileName(isLocal ? { id, name: $('nameInput').value.trim() } : getPeer(id));
   applyVolumes();
   $('empty').classList.add('hidden');
+}
+
+function attachScreenAudio(p, stream) {
+  if (p.screenSrc) { try { p.screenSrc.disconnect(); } catch {} p.screenSrc = null; }
+  const a = stream.getAudioTracks()[0];
+  if (!a) return;
+  if (!p.screenGainNode) {
+    p.screenGainNode = audioCtx.createGain();
+    p.screenGainNode.connect(outMaster);
+  }
+  p.screenSrc = audioCtx.createMediaStreamSource(new MediaStream([a]));
+  p.screenSrc.connect(p.screenGainNode);
+  applyVolumes();
 }
 
 function updateTileName(p) {
@@ -634,6 +790,8 @@ function removeTile(id) {
     if (v) v.srcObject = null;
     t.remove();
   }
+  const p = peers.get(id);
+  if (p && p.screenSrc) { try { p.screenSrc.disconnect(); } catch {} p.screenSrc = null; }
   if (!$('grid').children.length) $('empty').classList.remove('hidden');
 }
 
@@ -648,6 +806,7 @@ function renderPeers() {
   const list = [...peers.values()].filter(p => p.conn);
   if (!list.length) {
     ul.innerHTML = '<li class="hint">Ninguém conectado</li>';
+    updateBadge();
     return;
   }
   for (const p of list) {
@@ -655,9 +814,15 @@ function renderPeers() {
     li.dataset.id = p.id;
     const top = document.createElement('div');
     top.className = 'pname';
-    const dot = document.createElement('span'); dot.className = 'dot';
-    const nm = document.createElement('span'); nm.textContent = p.name;
-    top.append(dot, nm);
+    const dot = document.createElement('span'); dot.className = 'dot wait';
+    dot.title = 'Qualidade da conexão';
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
+    const spk = document.createElement('span'); spk.className = 'spk'; spk.textContent = '🔊';
+    top.append(dot, nm, spk);
+
+    const net = document.createElement('div');
+    net.className = 'net';
+    net.textContent = 'Conectando...';
 
     const lbl = document.createElement('label');
     lbl.className = 'vol';
@@ -665,13 +830,125 @@ function renderPeers() {
     val.textContent = Math.round(p.vol * 100) + '%';
     lbl.append('Volume da voz: ', val);
     const r = document.createElement('input');
-    r.type = 'range'; r.min = 0; r.max = 100; r.value = Math.round(p.vol * 100);
-    r.oninput = () => { p.vol = r.value / 100; val.textContent = r.value + '%'; applyVolumes(); };
+    r.type = 'range'; r.min = 0; r.max = 400; r.step = 5; r.value = Math.round(p.vol * 100);
+    r.oninput = () => {
+      p.vol = r.value / 100;
+      val.textContent = r.value + '%';
+      store.set('pvol_' + p.name, p.vol);
+      applyVolumes();
+    };
     lbl.appendChild(r);
 
-    li.append(top, lbl);
+    li.append(top, net, lbl);
     ul.appendChild(li);
+    paintNet(p);
   }
+  updateBadge();
+}
+
+// =====================================================================
+// HEARTBEAT: detecta quem saiu sem avisar (app fechado, internet caiu)
+// =====================================================================
+const HEARTBEAT_MS = 2000;
+const PEER_TIMEOUT_MS = 8000;
+
+function heartbeatLoop() {
+  const now = Date.now();
+  for (const p of [...peers.values()]) {
+    if (!p.conn) continue;
+    if (p.conn.open) { try { p.conn.send({ type: 'ping' }); } catch {} }
+    const pcs = [p.conn.peerConnection, p.micCall && p.micCall.peerConnection].filter(Boolean);
+    const dead = pcs.some(pc => pc.connectionState === 'failed' || pc.connectionState === 'closed');
+    if (dead || now - (p.lastSeen || now) > PEER_TIMEOUT_MS) {
+      console.warn('Removendo participante sem resposta:', p.name);
+      removePeer(p.id);
+    }
+  }
+  setTimeout(heartbeatLoop, HEARTBEAT_MS);
+}
+
+function sayGoodbye() {
+  for (const p of peers.values()) {
+    if (p.conn && p.conn.open) { try { p.conn.send({ type: 'bye' }); } catch {} }
+  }
+}
+
+// =====================================================================
+// INDICADOR DE CONEXÃO
+// =====================================================================
+function updateBadge() {
+  const badge = $('connBadge');
+  const text = $('connText');
+  const n = [...peers.values()].filter(p => p.conn && p.conn.open).length;
+  let cls, t;
+  if (!peer) { cls = 'off'; t = 'Desconectado'; }
+  else if (peer.disconnected) { cls = 'bad'; t = n ? `Servidor caiu · reconectando (${n} ainda conectado${n > 1 ? 's' : ''})` : 'Sem servidor · reconectando...'; }
+  else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
+  else if (n) {
+    const bad = [...peers.values()].some(p => p.net && (p.net.cls === 'bad' || p.net.cls === 'warn'));
+    cls = bad ? 'warn' : 'good';
+    t = `Conectado · ${n} pessoa${n > 1 ? 's' : ''}`;
+  }
+  else { cls = 'good'; t = isHost ? 'Online · aguardando pessoas' : 'Online'; }
+  badge.className = 'badge ' + cls;
+  text.textContent = t;
+}
+
+function paintNet(p) {
+  const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
+  if (!li) return;
+  const dot = li.querySelector('.dot');
+  const net = li.querySelector('.net');
+  const n = p.net || { cls: 'wait', text: 'Conectando...' };
+  dot.className = 'dot ' + n.cls;
+  net.textContent = n.text;
+  net.className = 'net ' + n.cls;
+}
+
+async function readNet(p) {
+  const pc = p.micCall && p.micCall.peerConnection;
+  if (!pc) return { cls: 'wait', text: 'Conectando...' };
+  const st = pc.connectionState;
+  if (st === 'failed') return { cls: 'bad', text: 'Conexão perdida' };
+  if (st === 'disconnected') return { cls: 'warn', text: 'Instável · tentando reconectar...' };
+  if (st !== 'connected') return { cls: 'wait', text: 'Conectando...' };
+
+  const stats = await pc.getStats();
+  let pair = null, lost = 0, recv = 0;
+  stats.forEach(r => {
+    if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId);
+    if (r.type === 'inbound-rtp' && r.kind === 'audio') { lost += r.packetsLost || 0; recv += r.packetsReceived || 0; }
+  });
+  if (!pair) stats.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+
+  const rtt = pair && pair.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null;
+  const lc = pair && stats.get(pair.localCandidateId);
+  const rc = pair && stats.get(pair.remoteCandidateId);
+  let via = 'direta';
+  if ((lc && lc.candidateType === 'relay') || (rc && rc.candidateType === 'relay')) via = 'via TURN';
+  else if (lc && rc && lc.candidateType === 'host' && rc.candidateType === 'host') via = 'rede local/VPN';
+
+  // perda de pacotes desde a última leitura
+  const prev = p._lossPrev || { lost, recv };
+  const dl = lost - prev.lost, dr = recv - prev.recv;
+  p._lossPrev = { lost, recv };
+  const loss = dl + dr > 0 ? Math.max(0, (dl / (dl + dr)) * 100) : 0;
+
+  let cls = 'good';
+  if ((rtt != null && rtt > 300) || loss > 10) cls = 'bad';
+  else if ((rtt != null && rtt > 150) || loss > 3) cls = 'warn';
+  const parts = [rtt != null ? `${rtt} ms` : null, via, loss >= 1 ? `${loss.toFixed(0)}% perda` : null].filter(Boolean);
+  return { cls, text: parts.join(' · ') };
+}
+
+async function netLoop() {
+  for (const p of peers.values()) {
+    if (!p.conn) continue;
+    try { p.net = await readNet(p); } catch (e) { console.warn('stats', e); }
+    paintNet(p);
+  }
+  updateBadge();
+  setTimeout(netLoop, 2000);
 }
 
 // =====================================================================
@@ -688,6 +965,8 @@ async function init() {
   $('outVol').value = store.get('outVol', 100);
   $('shareVol').value = store.get('shareVol', 100);
   $('noiseChk').checked = store.get('noise', true);
+  $('echoChk').checked = store.get('echo', true);
+  $('agcChk').checked = store.get('agc', false);
   $('shareAudioChk').checked = store.get('shareAudio', true);
   $('qualitySelect').value = store.get('quality', '1080_30');
   $('micVolVal').textContent = $('micVol').value + '%';
@@ -698,9 +977,12 @@ async function init() {
   initAudio();
   await openMic(store.get('mic', ''));
   await refreshDevices();
-  outDeviceId = $('outSelect').value;
+  await setOutputDevice($('outSelect').value);
   navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+  applyVolumes();
   meterLoop();
+  netLoop();
+  heartbeatLoop();
 
   if (window.native.platform !== 'win32') {
     $('shareAudioChk').parentElement.title = 'Áudio do sistema só é capturado no Windows';
@@ -713,15 +995,21 @@ async function init() {
   $('roomInput').onkeydown = e => { if (e.key === 'Enter') joinRoom(); };
 
   $('micSelect').onchange = async () => { store.set('mic', $('micSelect').value); await openMic($('micSelect').value); };
-  $('noiseChk').onchange = async () => { store.set('noise', $('noiseChk').checked); await openMic($('micSelect').value); };
+  for (const [id, key] of [['noiseChk', 'noise'], ['echoChk', 'echo'], ['agcChk', 'agc']]) {
+    $(id).onchange = async () => { store.set(key, $(id).checked); await openMic($('micSelect').value); };
+  }
+  $('monitorBtn').onclick = toggleMonitor;
+  $('recBtn').onclick = recordTest;
+  $('testOutBtn').onclick = testOutput;
+  document.addEventListener('click', () => { if (audioCtx.state !== 'running') audioCtx.resume(); });
   $('micVol').oninput = () => {
-    micGain.gain.value = $('micVol').value / 100;
+    setGain(micGain, $('micVol').value / 100);
     $('micVolVal').textContent = $('micVol').value + '%';
     store.set('micVol', +$('micVol').value);
   };
   $('muteBtn').onclick = () => setMuted(!micMuted);
 
-  $('outSelect').onchange = () => { outDeviceId = $('outSelect').value; store.set('out', outDeviceId); applySinkAll(); };
+  $('outSelect').onchange = () => { store.set('out', $('outSelect').value); setOutputDevice($('outSelect').value); };
   $('outVol').oninput = () => {
     outVolume = $('outVol').value / 100;
     $('outVolVal').textContent = $('outVol').value + '%';
@@ -730,7 +1018,7 @@ async function init() {
   };
 
   $('shareVol').oninput = () => {
-    if (screenGain) screenGain.gain.value = $('shareVol').value / 100;
+    setGain(screenGain, $('shareVol').value / 100);
     $('shareVolVal').textContent = $('shareVol').value + '%';
     store.set('shareVol', +$('shareVol').value);
   };
@@ -738,7 +1026,11 @@ async function init() {
   $('qualitySelect').onchange = () => store.set('quality', $('qualitySelect').value);
   $('shareBtn').onclick = () => (screenStream ? stopShare() : startShare());
 
-  window.addEventListener('beforeunload', () => { if (peer) peer.destroy(); });
+  window.addEventListener('beforeunload', () => {
+    stopShare();
+    sayGoodbye();
+    if (peer) peer.destroy();
+  });
 }
 
 init();

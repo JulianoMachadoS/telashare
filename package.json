@@ -1,7 +1,7 @@
 {
   "name": "telashare",
   "productName": "TelaShare",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Compartilhamento de tela com áudio entre 2 ou mais computadores",
   "main": "main.js",
   "author": "TelaShare",

@@ -9,7 +9,12 @@
 </head>
 <body>
   <aside id="sidebar">
-    <h1>TelaShare</h1>
+    <div class="header">
+      <h1>TelaShare</h1>
+      <div id="connBadge" class="badge off" title="Status da conexão">
+        <span class="bdot"></span><span id="connText">Desconectado</span>
+      </div>
+    </div>
 
     <!-- CONEXÃO -->
     <section id="connectBox">
@@ -46,25 +51,36 @@
       <button id="leaveBtn" class="danger">Sair da sala</button>
     </section>
 
-    <!-- ÁUDIO -->
+    <!-- ENTRADA -->
     <section>
-      <h2>Áudio</h2>
-      <label>Microfone (entrada)
+      <h2>Entrada (microfone)</h2>
+      <label>Microfone
         <select id="micSelect"></select>
       </label>
-      <label>Volume do microfone: <span id="micVolVal">100%</span>
-        <input type="range" id="micVol" min="0" max="200" value="100">
+      <label>Ganho do microfone: <span id="micVolVal">100%</span>
+        <input type="range" id="micVol" min="0" max="400" step="5" value="100">
       </label>
-      <div class="meter"><div id="micMeter"></div></div>
-      <label class="check"><input type="checkbox" id="noiseChk" checked> Supressão de ruído / eco</label>
+      <div class="meter" title="Nível do seu microfone (o que os outros ouvem)"><div id="micMeter"></div></div>
+      <p class="hint">Fale normalmente: a barra deve ficar verde, no meio. Vermelha = alto demais.</p>
+      <label class="check"><input type="checkbox" id="noiseChk" checked> Supressão de ruído</label>
+      <label class="check"><input type="checkbox" id="echoChk" checked> Cancelamento de eco</label>
+      <label class="check"><input type="checkbox" id="agcChk"> Ganho automático (nivela o volume)</label>
       <button id="muteBtn">🎤 Microfone ligado</button>
+      <button id="monitorBtn">🎧 Ouvir meu microfone</button>
+      <button id="recBtn">⏺️ Gravar teste (5s) e ouvir</button>
+    </section>
 
-      <label>Saída (alto-falante/fone)
+    <!-- SAÍDA -->
+    <section>
+      <h2>Saída (fone / caixa)</h2>
+      <label>Dispositivo de saída
         <select id="outSelect"></select>
       </label>
-      <label>Volume geral de saída: <span id="outVolVal">100%</span>
-        <input type="range" id="outVol" min="0" max="100" value="100">
+      <label>Volume geral: <span id="outVolVal">100%</span>
+        <input type="range" id="outVol" min="0" max="300" step="5" value="100">
       </label>
+      <button id="testOutBtn">🔊 Testar som</button>
+      <p class="hint">O volume de cada pessoa (até 400%) fica em Participantes.</p>
     </section>
 
     <!-- COMPARTILHAMENTO -->

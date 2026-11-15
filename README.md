@@ -25,20 +25,60 @@ Várias pessoas podem compartilhar a tela ao mesmo tempo.
 
 ## 🎚️ Controles
 
-| Onde | O que faz |
+### Entrada (microfone)
+| Controle | O que faz |
 |---|---|
-| **Microfone (entrada)** | Escolher o microfone |
-| **Volume do microfone** | 0 a 200% (com medidor de nível) |
-| **Supressão de ruído / eco** | Liga e desliga o filtro do microfone |
+| **Microfone** | Escolher o microfone |
+| **Ganho do microfone** | 0 a **400%**. Aumenta o quanto o seu microfone capta |
+| **Medidor** | Verde = bom · verde-escuro = baixo demais · vermelho = alto demais |
+| **Supressão de ruído** | Remove ruído de fundo (ventilador, teclado) |
+| **Cancelamento de eco** | Evita que o som da sua caixa volte pelo microfone |
+| **Ganho automático** | Nivela o volume da sua voz automaticamente |
 | **🎤 Microfone ligado/mudo** | Botão de mudo |
-| **Saída** | Escolher fone ou caixa de som |
-| **Volume geral de saída** | Volume de tudo o que você ouve |
-| **Participantes → Volume da voz** | Volume da voz de cada pessoa |
-| **🔊 na barra de cada tela** | Volume do áudio daquela tela |
-| **Volume do áudio da tela enviado** | Volume do som do seu PC que os outros ouvem |
+| **🎧 Ouvir meu microfone** | Você se ouve ao vivo, exatamente como os outros te ouvem (use fone) |
+| **⏺️ Gravar teste (5s) e ouvir** | Grava 5 segundos da sua voz e reproduz em seguida |
+
+### Saída (fone / caixa)
+| Controle | O que faz |
+|---|---|
+| **Dispositivo de saída** | Escolher fone ou caixa de som |
+| **Volume geral** | 0 a **300%**. Volume de tudo o que você ouve |
+| **🔊 Testar som** | Toca um som curto para conferir a saída |
+| **Participantes → Volume da voz** | 0 a **400%** para cada pessoa |
+| **🔊 na barra de cada tela** | 0 a **400%** para o áudio de cada tela recebida |
+
+Um limitador automático evita distorção quando o volume passa de 100%. O app lembra o volume de
+cada pessoa pelo nome dela.
+
+### Compartilhar tela
+| Controle | O que faz |
+|---|---|
+| **Incluir áudio do PC** | Envia o som do computador junto com a tela |
 | **Qualidade** | 720p 30fps · 1080p 30fps · 1080p 60fps |
+| **Volume do áudio da tela enviado** | Volume do som do seu PC que os outros ouvem |
 
 O app guarda suas configurações para a próxima vez.
+
+## 📶 Indicador de conexão
+
+No topo, ao lado do nome do app:
+
+| Selo | Significado |
+|---|---|
+| ⚪ **Desconectado** | Você não está em nenhuma sala |
+| 🟡 **Conectando à sala...** | Procurando a sala / estabelecendo conexão |
+| 🟢 **Online · aguardando pessoas** | Sala criada, ninguém entrou ainda |
+| 🟢 **Conectado · N pessoas** | Tudo certo |
+| 🟡 **Conectado** (amarelo) | Alguém está com conexão ruim |
+| 🔴 **Servidor caiu · reconectando** | Perdeu o servidor de sinalização. Quem já está conectado continua funcionando |
+
+Em **Participantes**, cada pessoa mostra uma bolinha de qualidade e os detalhes da conexão.
+Exemplo: `35 ms · direta · 2% perda`.
+- **ms**: tempo de resposta (ping). Até 150 ms é ótimo.
+- **direta / rede local/VPN / via TURN**: por onde a conexão está passando.
+- **% perda**: pacotes perdidos. Acima de 3% o áudio pode picotar.
+
+Se alguém fechar o app ou perder a internet, essa pessoa e a tela dela somem em até ~8 segundos.
 
 ## ⚙️ Como funciona a conexão
 
