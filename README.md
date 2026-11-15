@@ -135,6 +135,11 @@ entre você e uma pessoa (e o resto da sala continuar), o app religa esse par so
 "📶 Conexão com Fulano caiu. Religando..." e depois "✅ Religado com Fulano" (até 6 tentativas).
 Para isso, cada participante avisa a cada 3 s com quem está ligado, e todos sabem quem continua na sala.
 
+**Se a ligação direta com alguém não fecha** (a rede de um dos dois bloqueia), o app tenta de novo
+várias vezes e, depois de ~20 s, avisa: "⚠️ Sem conexão direta com Fulano". A pessoa aparece em
+**Participantes** com ⚠️. O app continua tentando a cada 1 minuto, e se a rede liberar, conecta sozinho.
+Para resolver de vez, use um servidor **TURN** em "Avançado" ou uma **VPN** (veja abaixo).
+
 ## ⚙️ Como funciona a conexão
 
 Não existe servidor próprio nem túnel. Funciona em duas etapas:
@@ -274,6 +279,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 25–26 | 🎲 código aleatório; ocultar a minha prévia |
 | 27 | **(#31)** Três pessoas: só a ligação entre dois convidados cai e é religada sozinha, com voz nos dois sentidos; quem sai de propósito não é religado |
 | 28 | **(#32)** O anfitrião sai e cria a sala de novo (todos se religam); sai de vez (um convidado assume e uma pessoa nova encontra todos); volta com "Criar sala" (entra na sala existente) |
+| 29 | **(#30)** Ligação entre dois convidados bloqueada (simulado): tenta de novo até conectar; bloqueada de vez avisa os dois e mostra ⚠️ na lista; quando libera, conecta e o aviso some |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

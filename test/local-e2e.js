@@ -479,6 +479,42 @@ app.whenReady().then(async () => {
     check('28c. (#32) Antigo anfitrião volta com "Criar sala": entra na sala existente e todos se veem', four && !(await js(A, 'isHost')) && !(await alerts(A)).length,
       `A=${await count(A)} B=${await count(B)} C=${await count(C)} D=${await count(D)} alertas=${JSON.stringify(await alerts(A))}`);
     destroy([A, B, C, D]); }
+  // 29. (#30) A ligação direta entre dois convidados falha (simula NAT/firewall bloqueando)
+  //     Bloqueio simulado: as ligações entre B e C vão para um ID que não existe e nunca abrem.
+  if (want(29)) {
+    const block = (w, n) => js(w, `(() => { window.__block = ${n}; if (!window.__rc) { window.__rc = Peer.prototype.connect;
+      Peer.prototype.connect = function (id, o) {
+        if (!String(id).startsWith('telashare-') && window.__block > 0) { window.__block--; return window.__rc.call(this, 'telashare-bloqueado-' + Math.random().toString(36).slice(2), o); }
+        return window.__rc.call(this, id, o); }; } return 1; })()`);
+    const fast = (w, extra) => js(w, `pairTimeoutMs = 2500; pairCfg = { max: 2, delays: [300, 300], slow: 2000 }; ${extra || ''} 1`);
+    const all = (ws, n, ms) => until(async () => { for (const w of ws) if ((await count(w)) !== n) return false; return true; }, ms);
+    // a) as 3 primeiras tentativas falham: o app tenta de novo e conecta
+    { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+      for (const w of [B, C]) { await block(w, 3); await fast(w); }
+      await host(A, room); await wait(2500); await join(B, room, 'B'); await wait(1000); await join(C, room, 'C');
+      const ok = await all([A, B, C], 2, 60000);
+      check('29a. (#30) Ligação entre convidados falha nas primeiras tentativas e o app tenta de novo até conectar', ok,
+        `A=${await count(A)} B=${await count(B)} C=${await count(C)}`);
+      destroy([A, B, C]); }
+    // b) bloqueada de vez: os dois são avisados e veem a pessoa na lista com aviso
+    { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+      for (const w of [B, C]) { await block(w, 1e9); await fast(w, 'pairWarnMs = 5000;'); }
+      await host(A, room); await wait(2500); await join(B, room, 'Bia'); await wait(1000); await join(C, room, 'Caio');
+      const warned = await until(async () =>
+        (await js(B, 'toastLog.some(t => /Sem conexão direta com Caio/.test(t)) && !!document.querySelector("#peerList li.missing")')) &&
+        (await js(C, 'toastLog.some(t => /Sem conexão direta com Bia/.test(t)) && !!document.querySelector("#peerList li.missing")')), 40000);
+      if (!warned) console.log("  DEBUG", JSON.stringify(await Promise.all([A, B, C].map(w => js(w, `({ id: peer && peer.id, host: isHost, peers: [...peers.values()].map(p => p.name + ":" + !!(p.conn && p.conn.open)), roster: [...roster.keys()], toasts: toastLog, alerts: __alerts, status: status.textContent })`)))));
+      const item = await js(B, '(document.querySelector("#peerList li.missing") || {}).textContent || ""');
+      check('29b. (#30) Sem ligação direta: os dois são avisados e a pessoa aparece na lista com ⚠️', warned && /Caio/.test(item) && (await count(A)) === 2,
+        `item="${item}" A=${await count(A)}`);
+      // c) a rede "libera": a tentativa lenta conecta e o aviso some
+      for (const w of [B, C]) await js(w, 'window.__block = 0; 1');
+      const healed = await all([A, B, C], 2, 40000);
+      const cleared = healed && await until(async () => !(await js(B, '!!document.querySelector("#peerList li.missing")')) && !(await js(C, '!!document.querySelector("#peerList li.missing")')), 10000);
+      check('29c. (#30) Depois do limite, continua tentando devagar: quando a rede libera, conecta e o aviso some', healed && cleared,
+        `B=${await count(B)} C=${await count(C)}`);
+      destroy([A, B, C]); }
+  }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
