@@ -73,7 +73,15 @@ function mk() {
 }
 const js = (w, c) => w.webContents.executeJavaScript(c);
 const wait = ms => new Promise(r => setTimeout(r, ms));
-const ready = async ws => { await wait(2500); for (const w of ws) await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1'); };
+// Espera o app terminar de iniciar (botões ligados). Na primeira janela, que abre "a frio" no CI,
+// a inicialização pode passar de 2,5 s, e um clique antes disso se perde.
+const ready = async ws => {
+  await wait(2500);
+  for (const w of ws) {
+    await until(async () => { try { return await js(w, "!!(document.getElementById('hostBtn').onclick && typeof audioCtx !== 'undefined' && audioCtx)"); } catch { return false; } }, 30000);
+    await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1');
+  }
+};
 const host = (w, room) => js(w, `nameInput.value='Host'; roomInput.value='${room}'; hostBtn.click(); 1`);
 const join = (w, room, nm) => js(w, `nameInput.value='${nm}'; roomInput.value='${room}'; joinBtn.click(); 1`);
 const count = w => js(w, `[...peers.values()].filter(p => p.conn && p.conn.open && p.audioEl && p.audioEl.srcObject).length`);
