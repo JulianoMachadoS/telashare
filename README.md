@@ -17,13 +17,19 @@ Baixe o **`TelaShare.exe`** na página de [**Releases**](../../releases/latest).
 ## 🚀 Como usar
 
 1. Cada pessoa abre o `TelaShare.exe`.
-2. Todos digitam **seu nome** e o **mesmo código de sala** (ex.: `nossasala123`).
+2. Todos digitam **seu nome** e o **mesmo código de sala** (ex.: `nossasala123`). O botão **🎲**
+   gera um código aleatório que ninguém mais vai usar.
 3. **Uma** pessoa clica em **Criar sala**, e as outras clicam em **Entrar**.
 4. Para mostrar sua tela, clique em **🖥️ Compartilhar tela** e escolha a tela inteira ou uma janela.
    - Com **"Incluir áudio do PC"** marcado, o som do computador vai junto.
 5. As telas dos outros aparecem na área principal. Dê **duplo clique** para ver em tela cheia.
 
-Várias pessoas podem compartilhar a tela ao mesmo tempo.
+Várias pessoas podem compartilhar a tela ao mesmo tempo. Na barra da sua prévia, **🙈 Ocultar prévia**
+esconde a sua própria tela, libera o vídeo e economiza processamento. Os outros continuam vendo.
+
+**Nomes iguais?** Sem problema: cada instalação tem um identificador aleatório. Pessoas com o mesmo
+nome aparecem como `Juliano #a1b2` e `Juliano #c3d4`, cada uma com uma cor, e o volume de cada uma é
+lembrado separadamente.
 
 ### 📋 Convidar pelo link
 Dentro da sala, clique em **📋 Copiar convite** e mande a mensagem para o amigo. Ela contém um link
@@ -57,7 +63,11 @@ já abre o app e entra na sala.
 | **🔊 Testar som** | Toca um som curto para conferir a saída |
 | **Participantes → Volume da voz** | 0 a **400%** para cada pessoa |
 | **🔊 na barra de cada tela** | 0 a **400%** para o áudio de cada tela recebida |
+| **Sons de aviso** | Bipes curtos quando alguém entra, sai, compartilha a tela, quando você muta, quando a conexão cai e quando volta. Com volume próprio |
 | **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
+
+**Microfone ou fone desconectado:** o app troca sozinho para o dispositivo padrão e avisa. Quando o
+seu dispositivo preferido volta, ele volta a usar esse.
 
 Um limitador automático evita distorção quando o volume passa de 100%. O app lembra o volume de
 cada pessoa pelo nome dela.
@@ -79,6 +89,8 @@ O app guarda suas configurações para a próxima vez.
 
 O botão **i** no topo, ao lado do indicador de conexão, abre a janela **Sobre**, com:
 - versão instalada e copyright;
+- **Atualizações:** avisa quando existe uma versão nova no GitHub (também aparece uma bolinha
+  vermelha no botão **i**), com botão para baixar. *Só funciona com o repositório público.*
 - botões para o **projeto pai no GitHub**, para as **versões/downloads** e para **reportar um problema**;
 - a **licença AGPLv3** completa, o **NOTICE** e as **licenças dos componentes de terceiros**
   (PeerJS, Electron e Chromium).
@@ -104,6 +116,14 @@ Exemplo: `35 ms · direta · 2% perda`.
 - **🔇** ao lado do nome: a pessoa está com o microfone mudo.
 
 Se alguém fechar o app ou perder a internet, essa pessoa e a tela dela somem em até ~8 segundos.
+
+### 🔁 Reconexão automática
+Se a **sua** conexão cair (a internet piscou), o app tenta voltar sozinho para a mesma sala:
+até **5 tentativas**, esperando 2 s, 4 s, 8 s, 15 s e 30 s entre elas. O selo mostra
+"Reconectando (2 de 5)...". Se você estava compartilhando a tela, ela volta junto. Se não conseguir,
+o app avisa e volta para a tela inicial.
+- Quem sai **de propósito** ("Sair da sala" ou fechando o app) não dispara reconexão nos outros.
+- O **anfitrião** mantém a sala aberta e só reconecta ao servidor; quem volta são os convidados.
 
 ## ⚙️ Como funciona a conexão
 
@@ -230,6 +250,17 @@ npm test     # leva ~4 minutos e precisa de internet (usa o servidor público do
 | 8 | Testar som, ouvir microfone e gravar teste funcionam |
 | 9–11 | Fechar o app ou sair remove a pessoa e a tela dela |
 | 12 | 20 segundos conectado sem remoção falsa |
+| 13 | Indicador de mudo aparece e some para os outros |
+| 14 | Ducking abaixa e volta quando alguém fala; **14b:** continua funcionando com o app minimizado |
+| 15 | Qualidade adaptativa aplica e restaura resolução/bitrate |
+| 16 | Convite: copia o link e entra na sala por ele |
+| 17–18 | Aviso legal visível; janela Sobre com licenças e link do projeto pai |
+| 19 | Nomes repetidos ficam diferentes, com cores e volumes separados |
+| 20 | Sons de aviso (entrou, saiu, mudo) e opção de desligar |
+| 21–22 | Reconexão automática depois de uma queda, e desistência após o limite de tentativas |
+| 23 | Aviso de nova versão |
+| 24 | Microfone desconectado → passa para o padrão e avisa |
+| 25–26 | 🎲 código aleatório; ocultar a minha prévia |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('native', {
   openProject: () => ipcRenderer.invoke('open-project'),
   openLicense: () => ipcRenderer.invoke('open-license'),
   getVersion: () => ipcRenderer.invoke('get-version'),
+  checkUpdate: () => ipcRenderer.invoke('check-update'),
   openLink: key => ipcRenderer.invoke('open-link', key),
   readLicense: key => ipcRenderer.invoke('read-license', key),
   openChromiumLicenses: () => ipcRenderer.invoke('open-chromium-licenses'),

@@ -179,6 +179,35 @@ button.active { background: #248046; }
 .third th, .third td { text-align: left; padding: 6px 4px; border-bottom: 1px solid #3f4147; }
 .third td button { width: auto; margin: 0; padding: 4px 8px; font-size: 12px; }
 
+/* 🎲 código da sala */
+.room-row { display: flex; gap: 6px; align-items: stretch; margin-top: 4px; }
+.room-row input { margin-top: 0; flex: 1; min-width: 0; }
+.room-row button { width: 38px; margin: 0; padding: 0; font-size: 16px; }
+
+/* avatar colorido por pessoa */
+.av { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; min-width: 18px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 600; vertical-align: middle; }
+.tile .bar .who .av { margin-right: 2px; }
+
+/* avisos */
+.warn-box { font-size: 12px; background: #3d2a12; color: #f0b232; border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
+#toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 5; max-width: min(380px, 90vw); pointer-events: none; }
+.toast { background: #111214; color: #dbdee1; border-left: 4px solid #5865f2; border-radius: 6px; padding: 10px 12px; font-size: 13px; box-shadow: 0 4px 16px #0008; animation: toastIn .2s ease-out; transition: opacity .4s, transform .4s; }
+.toast.ok { border-color: #23a55a; }
+.toast.warn { border-color: #f0b232; }
+.toast.error { border-color: #da373c; }
+.toast.out { opacity: 0; transform: translateX(20px); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } }
+
+/* nova versão: bolinha no botão i */
+.icon-btn { position: relative; }
+.icon-btn.has-update::after { content: ''; position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #da373c; border: 2px solid #2b2d31; }
+.update-box .row button { width: auto; flex: 1; }
+
+/* prévia oculta */
+.tile.collapsed video { display: none; }
+.tile.collapsed .bar::before { content: '🖥️ Você está compartilhando sua tela'; color: #949ba4; font-size: 12px; margin-right: auto; }
+.tile.collapsed .who { display: none; }
+
 /* mudo */
 #peerList .mut, .tile .tmut { display: none; font-size: 12px; }
 #peerList li.muted .mut, .tile.muted .tmut { display: inline; }

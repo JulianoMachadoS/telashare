@@ -46,6 +46,8 @@ ipcMain.handle('open-license', () => true);
 const openedLinks = [];
 ipcMain.handle('open-link', (_e, k) => { openedLinks.push(k); return true; });
 ipcMain.handle('open-chromium-licenses', () => true);
+let updateReply = { error: 'not-found' };
+ipcMain.handle('check-update', () => updateReply);
 ipcMain.handle('read-license', (_e, k) => {
   const files = { license: 'LICENSE', notice: 'NOTICE', peerjs: 'node_modules/peerjs/LICENSE' };
   try { return require('fs').readFileSync(path.join(APP, files[k]), 'utf8'); } catch { return null; }
@@ -331,6 +333,98 @@ app.whenReady().then(async () => {
     check('18d. Mostra a licença de terceiros (PeerJS, MIT)', /MIT License/.test(peer));
     check('18e. Botão do repositório pede para abrir o link do projeto pai', openedLinks.includes('project'));
     check('18f. Esc fecha a janela Sobre', closed);
+    destroy([A]); }
+
+  // 19. Nomes repetidos: três pessoas chamadas "Juliano"
+  { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+    await js(A, `nameInput.value='Juliano'; roomInput.value='${room}'; hostBtn.click(); 1`); await wait(2500);
+    await join(B, room, 'Juliano'); await wait(1000); await join(C, room, 'Juliano');
+    await until(async () => (await count(A)) === 2, 30000); await wait(1500);
+    const names = await js(A, `[...document.querySelectorAll('#peerList .nm')].map(e => e.textContent)`);
+    const colors = await js(A, `[...document.querySelectorAll('#peerList .av')].map(e => e.style.background)`);
+    const idx = await js(A, `[...peers.values()].map(p => p.colorIdx)`);
+    check('19a. Nomes repetidos aparecem diferentes na lista (com #id)', names.length === 2 && new Set(names).size === 2 && names.every(n => /^Juliano #[a-z0-9]{4}$/.test(n)), JSON.stringify(names));
+    check('19b. Cada pessoa tem uma cor diferente (cores distintas da paleta)', colors.length === 2 && new Set(colors).size === 2 && new Set(idx).size === 2, JSON.stringify({ colors, idx }));
+    await js(A, `const r = document.querySelector('#peerList li input[type=range]'); r.value = 250; r.oninput(); 1`);
+    const keys = await js(A, `Object.keys(localStorage).filter(k => k.startsWith('ts_pvol'))`);
+    const vols = await js(A, `[...peers.values()].map(p => p.vol)`);
+    check('19c. Volume salvo por instalação, sem misturar pessoas de mesmo nome', keys.length === 1 && /^ts_pvol_dev_/.test(keys[0]) && vols.includes(2.5) && vols.includes(1), JSON.stringify({ keys, vols }));
+    destroy([A, B, C]); }
+  // 20. Sons de aviso
+  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000); await wait(1000);
+    await js(B, 'muteBtn.click(); 1'); await wait(300);
+    await js(B, 'leaveBtn.click(); 1'); await until(async () => (await js(A, 'peers.size')) === 0, 10000);
+    const sa = await js(A, 'soundLog.slice()'), sb = await js(B, 'soundLog.slice()');
+    check('20a. Sons: alguém entrou / saiu', sa.includes('join') && sa.includes('leave'), JSON.stringify(sa));
+    check('20b. Sons: mudo', sb.includes('mute'), JSON.stringify(sb));
+    const before = await js(A, 'soundLog.length');
+    await js(A, 'soundChk.checked = false; muteBtn.click(); muteBtn.click(); 1'); await wait(200);
+    check('20c. Desligar os sons silencia os avisos', (await js(A, 'soundLog.length')) === before);
+    check('20d. Quem saiu de propósito não dispara reconexão', !(await js(A, 'rejoining')) && !(await js(B, 'rejoining')));
+    destroy([A, B]); }
+  // 21. Reconexão automática: a conexão do amigo cai de repente (sem "bye")
+  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000); await wait(1000);
+    await js(B, 'rejoinCfg = { max: 5, delays: [1000, 2000, 3000, 4000, 5000] }; 1');
+    await js(B, `for (const p of peers.values()) [p.conn && p.conn.peerConnection, p.micCall && p.micCall.peerConnection].forEach(pc => pc && pc.close()); 1`);
+    const started = await until(async () => await js(B, 'rejoining'), 15000);
+    const back = await until(async () => (await count(A)) === 1 && (await count(B)) === 1 && !(await js(B, 'rejoining')), 60000);
+    const sb = await js(B, 'soundLog.slice()'), tb = await js(B, 'toastLog.slice()');
+    check('21a. Conexão caiu: o app começa a reconectar sozinho', started);
+    check('21b. Reconectou e a voz voltou nos dois lados', back, `A=${await count(A)} B=${await count(B)}`);
+    check('21c. Avisos de "conexão perdida" e "reconectado" (som e mensagem)', sb.includes('warn') && sb.includes('ok') && tb.some(t => /Reconectado/.test(t)), JSON.stringify({ sb, tb }));
+    destroy([A, B]); }
+  // 22. Reconexão com limite: o anfitrião sumiu de vez
+  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(B)) === 1, 20000); await wait(1000);
+    await js(B, 'rejoinCfg = { max: 2, delays: [500, 500] }; 1');
+    A.destroy();
+    const gaveUp = await until(async () => (await alerts(B)).some(a => /Não foi possível reconectar/.test(a)), 120000);
+    const out = await js(B, '!peer && !rejoining && !connectBox.classList.contains("hidden")');
+    check('22. Desiste após o limite de tentativas e volta para a tela inicial', gaveUp && out, JSON.stringify(await alerts(B)));
+    destroy([B]); }
+  // 23. Aviso de nova versão na janela Sobre
+  { updateReply = { tag: 'v9.9.9', url: 'https://example.invalid' };
+    const A = mk(); await ready([A]); await wait(1000);
+    const badge = await js(A, 'aboutBtn.classList.contains("has-update")');
+    await js(A, 'aboutBtn.click(); 1'); await wait(300);
+    const txt = await js(A, 'updateText.textContent');
+    const dl = await js(A, '!updateDownload.classList.contains("hidden")');
+    check('23a. Nova versão: bolinha no botão i, aviso e botão de baixar', badge && /v9\.9\.9/.test(txt) && dl && (await js(A, 'toastLog.some(t => /Nova versão/.test(t))')), txt);
+    updateReply = { tag: 'v0.0.0' };
+    await js(A, 'updateCheck.click(); 1'); await wait(500);
+    check('23b. Sem versão nova: "versão mais recente"', /mais recente/.test(await js(A, 'updateText.textContent')) && !(await js(A, 'aboutBtn.classList.contains("has-update")')));
+    updateReply = { error: 'not-found' };
+    await js(A, 'updateCheck.click(); 1'); await wait(500);
+    check('23c. Sem acesso às versões: mensagem clara em vez de erro', /Não foi possível verificar/.test(await js(A, 'updateText.textContent')));
+    destroy([A]); }
+  // 24. Microfone desconectado
+  { const A = mk(); await ready([A]); await wait(500);
+    const r = await js(A, `(async () => {
+      const old = micRaw.getAudioTracks()[0];
+      old.dispatchEvent(new Event('ended'));
+      for (let i = 0; i < 40; i++) { await new Promise(r => setTimeout(r, 100)); const t = micRaw && micRaw.getAudioTracks()[0]; if (t && t !== old && t.readyState === 'live') break; }
+      const t = micRaw && micRaw.getAudioTracks()[0];
+      return { novo: !!t && t !== old && t.readyState === 'live', toasts: toastLog.slice() }; })()`);
+    check('24. Microfone desconectado: avisa e passa para o microfone padrão', r.novo && r.toasts.some(t => /Microfone desconectado/.test(t)) && r.toasts.some(t => /Usando agora/.test(t)), JSON.stringify(r));
+    destroy([A]); }
+  // 25. 🎲 código aleatório + 26. ocultar a minha prévia
+  { const A = mk(); await ready([A]);
+    await js(A, 'diceBtn.click(); 1'); const c1 = await js(A, 'roomInput.value');
+    await js(A, 'diceBtn.click(); 1'); const c2 = await js(A, 'roomInput.value');
+    const ok = [c1, c2].every(c => /^[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{2}$/.test(c));
+    check('25. 🎲 gera códigos aleatórios válidos e diferentes', ok && c1 !== c2 && (await js(A, `sanitizeRoom('${c1}') === '${c1}'`)), `${c1} / ${c2}`);
+    await js(A, `(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180; c.getContext('2d').fillRect(0, 0, 320, 180);
+      localPreview = c.captureStream(5); showTile('__local__', localPreview, true); applyPreviewHidden(); return 1; })()`);
+    await js(A, 'document.querySelector(".tile .prevBtn").click(); 1'); await wait(200);
+    const hidden = await js(A, '({ c: tileEl("__local__").classList.contains("collapsed"), src: tileEl("__local__").querySelector("video").srcObject === null })');
+    await js(A, 'document.querySelector(".tile .prevBtn").click(); 1'); await wait(200);
+    const shown = await js(A, '({ c: tileEl("__local__").classList.contains("collapsed"), src: tileEl("__local__").querySelector("video").srcObject === localPreview })');
+    check('26. Ocultar a minha prévia (libera o vídeo) e mostrar de novo', hidden.c && hidden.src && !shown.c && shown.src, JSON.stringify({ hidden, shown }));
     destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.every(Boolean) ? 0 : 1);

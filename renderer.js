@@ -77,6 +77,113 @@ const store = {
 };
 
 // =====================================================================
+// IDENTIDADE: ID aleatório e fixo por instalação (não usa nenhum dado pessoal).
+// Serve para diferenciar pessoas com o mesmo nome e lembrar o volume de cada uma.
+// =====================================================================
+const DEVICE_ID = (() => {
+  let id = store.get('deviceId', null);
+  if (!id) { id = crypto.randomUUID(); store.set('deviceId', id); }
+  return id;
+})();
+
+function hashHue(text) {
+  let h = 0;
+  for (const c of String(text)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+// Paleta de cores bem distintas entre si (gerar a cor direto do ID deixava tons vizinhos,
+// ex. dois verdes quase iguais). Se duas pessoas da sala caem na mesma cor, a segunda
+// pega a próxima cor livre.
+const PALETTE = ['#e5484d', '#f76b15', '#b88a00', '#30a46c', '#12a594', '#0090ff', '#3e63dd', '#8e4ec6', '#d6409f', '#a18072'];
+function assignColors() {
+  const list = [...peers.values()].filter(p => p.conn)
+    .sort((a, b) => String(a.deviceId || a.id).localeCompare(String(b.deviceId || b.id)));
+  const used = new Set();
+  for (const p of list) {
+    let i = hashHue(p.deviceId || p.id) % PALETTE.length;
+    for (let k = 0; k < PALETTE.length && used.has(i); k++) i = (i + 1) % PALETTE.length;
+    used.add(i);
+    p.colorIdx = i;
+  }
+}
+function peerColor(p) {
+  const i = p.colorIdx != null ? p.colorIdx : hashHue(p.deviceId || p.id) % PALETTE.length;
+  return PALETTE[i];
+}
+function peerTag(p) { return (p.deviceId || p.id).replace(/[^a-z0-9]/gi, '').slice(0, 4).toLowerCase(); }
+
+// Nome exibido: se outra pessoa conectada (ou você) tem o mesmo nome, mostra "Nome #a1b2"
+function displayName(p) {
+  const key = p.name.trim().toLowerCase();
+  const myName = $('nameInput').value.trim().toLowerCase();
+  const dup = key === myName ||
+    [...peers.values()].some(o => o !== p && o.conn && o.name.trim().toLowerCase() === key);
+  return dup ? `${p.name} #${peerTag(p)}` : p.name;
+}
+
+// Volumes salvos por instalação (deviceId); versões antigas sem deviceId usam o nome
+function volKey(kind, p) { return p.deviceId ? `${kind}_dev_${p.deviceId}` : `${kind}_${p.name}`; }
+
+function makeAvatar(p) {
+  const av = document.createElement('span');
+  av.className = 'av';
+  av.textContent = (p.name.trim()[0] || '?').toUpperCase();
+  av.style.background = peerColor(p);
+  return av;
+}
+
+// =====================================================================
+// AVISOS NA TELA (toasts)
+// =====================================================================
+const toastLog = [];
+function showToast(msg, kind = 'info', ms = 5000) {
+  toastLog.push(msg);
+  const box = $('toasts');
+  if (!box) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + kind;
+  t.textContent = msg;
+  box.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 400); }, ms);
+}
+
+// =====================================================================
+// SONS DE AVISO (gerados na hora, sem arquivos)
+// =====================================================================
+const SOUNDS = {
+  // [frequência Hz, início s, duração s]
+  'join':      [[523, 0, 0.09], [784, 0.09, 0.14]],
+  'leave':     [[784, 0, 0.09], [523, 0.09, 0.14]],
+  'share-on':  [[523, 0, 0.07], [659, 0.07, 0.07], [784, 0.14, 0.12]],
+  'share-off': [[784, 0, 0.07], [523, 0.07, 0.12]],
+  'mute':      [[330, 0, 0.09]],
+  'unmute':    [[660, 0, 0.09]],
+  'warn':      [[247, 0, 0.12], [247, 0.18, 0.12]],
+  'ok':        [[660, 0, 0.08], [880, 0.08, 0.12]]
+};
+const soundLog = [];
+function playSound(name) {
+  const notes = SOUNDS[name];
+  if (!notes || !audioCtx || !$('soundChk').checked) return;
+  soundLog.push(name);
+  const vol = ($('soundVol').value / 100) * 0.25;
+  if (vol <= 0) return;
+  const t0 = audioCtx.currentTime + 0.01;
+  for (const [f, start, dur] of notes) {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = f;
+    g.gain.setValueAtTime(0, t0 + start);
+    g.gain.linearRampToValueAtTime(vol, t0 + start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+    o.connect(g).connect(outMaster);
+    o.start(t0 + start);
+    o.stop(t0 + start + dur + 0.02);
+  }
+}
+
+// =====================================================================
 // ÁUDIO LOCAL (microfone)
 // =====================================================================
 // Limitador suave (sem atraso): até 0,8 o sinal passa intacto e acima disso é arredondado,
@@ -141,9 +248,69 @@ async function openMic(deviceId) {
     });
     micSource = audioCtx.createMediaStreamSource(micRaw);
     micSource.connect(micGain);
+    const track = micRaw.getAudioTracks()[0];
+    track.onended = onMicLost; // fone desplugado, USB removido etc.
+    $('micWarn').classList.add('hidden');
+    return true;
   } catch (e) {
     console.warn('Microfone indisponível', e);
-    setStatus('Microfone indisponível: ' + e.message);
+    micRaw = null;
+    $('micWarn').classList.remove('hidden');
+    return false;
+  }
+}
+
+function currentMicId() {
+  const t = micRaw && micRaw.getAudioTracks()[0];
+  return t && t.readyState === 'live' ? (t.getSettings().deviceId || '') : null;
+}
+
+// O microfone em uso sumiu: troca para o padrão do sistema e avisa
+let micRecovering = false;
+async function onMicLost() {
+  if (micRecovering) return;
+  micRecovering = true;
+  try {
+    showToast('🎤 Microfone desconectado. Tentando usar o microfone padrão...', 'warn');
+    playSound('warn');
+    await refreshDevices();
+    const ok = await openMic('');
+    await refreshDevices();
+    if (ok) {
+      $('micSelect').value = currentMicId() || $('micSelect').value;
+      showToast('🎤 Usando agora: ' + ($('micSelect').selectedOptions[0] || {}).textContent, 'ok');
+    } else {
+      showToast('🎤 Nenhum microfone encontrado. Conecte um microfone.', 'error', 8000);
+    }
+  } finally {
+    micRecovering = false;
+  }
+}
+
+// Dispositivos mudaram (plugou/desplugou algo)
+async function onDeviceChange() {
+  await refreshDevices();
+  const inputs = [...$('micSelect').options].map(o => o.value);
+  const preferred = store.get('mic', '');
+  const cur = currentMicId();
+  if (cur === null && inputs.length) {
+    // estava sem microfone e apareceu um
+    if (await openMic(inputs.includes(preferred) ? preferred : '')) {
+      $('micSelect').value = currentMicId() || $('micSelect').value;
+      showToast('🎤 Microfone conectado: ' + ($('micSelect').selectedOptions[0] || {}).textContent, 'ok');
+    }
+  } else if (preferred && cur !== null && cur !== preferred && inputs.includes(preferred)) {
+    // o microfone preferido voltou: volta para ele
+    if (await openMic(preferred)) {
+      $('micSelect').value = preferred;
+      showToast('🎤 Voltando para: ' + ($('micSelect').selectedOptions[0] || {}).textContent, 'ok');
+    }
+  }
+  // saída escolhida sumiu: volta para a padrão
+  const outs = [...$('outSelect').options].map(o => o.value);
+  if (outDeviceId && outDeviceId !== 'default' && !outs.includes(outDeviceId)) {
+    await setOutputDevice('default');
+    showToast('🔊 Dispositivo de saída desconectado. Usando a saída padrão.', 'warn');
   }
 }
 
@@ -210,6 +377,7 @@ function setMuted(m) {
   micMuted = m;
   muteGain.gain.setTargetAtTime(m ? 0 : 1, audioCtx.currentTime, 0.01);
   broadcast({ type: 'state', muted: m });
+  playSound(m ? 'mute' : 'unmute');
   const b = $('muteBtn');
   b.textContent = m ? '🔇 Microfone mudo' : '🎤 Microfone ligado';
   b.classList.toggle('muted', m);
@@ -303,6 +471,15 @@ async function setOutputDevice(id) {
 // =====================================================================
 function sanitizeRoom(s) { return s.trim().toLowerCase().replace(/[^a-z0-9_-]/g, ''); }
 
+// 🎲 Código de sala aleatório: 10 caracteres sem letras/números confundíveis (l, 1, o, 0, i).
+// São ~800 trilhões de combinações, então na prática ninguém mais vai usar o mesmo código.
+const ROOM_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+function generateRoomCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  const c = [...bytes].map(b => ROOM_ALPHABET[b % ROOM_ALPHABET.length]).join('');
+  return `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}`;
+}
+
 function makePeer(id) {
   return new Promise((resolve, reject) => {
     const opts = peerOpts();
@@ -363,13 +540,15 @@ async function joinRoom() {
 // Obs.: não dá para confiar só no erro "peer-unavailable" do servidor público,
 // porque depois do primeiro erro ele às vezes deixa as novas tentativas sem resposta.
 const JOIN_MAX_ATTEMPTS = 6;
+const REJOIN_JOIN_ATTEMPTS = 2; // em reconexão, cada rodada tenta 2 vezes antes de esperar
 let joinRetryFn = null;
 
 function tryJoin() {
   if (!peer || !joinTarget) return;
   joinAttempts++;
   const myAttempt = joinAttempts;
-  setStatus(joinAttempts > 1 ? `Procurando a sala... (tentativa ${joinAttempts} de ${JOIN_MAX_ATTEMPTS})` : 'Procurando a sala...');
+  const maxAttempts = rejoining ? REJOIN_JOIN_ATTEMPTS : JOIN_MAX_ATTEMPTS;
+  if (!rejoining) setStatus(joinAttempts > 1 ? `Procurando a sala... (tentativa ${joinAttempts} de ${maxAttempts})` : 'Procurando a sala...');
   const conn = peer.connect(joinTarget, { reliable: true });
   setupConn(conn, true);
 
@@ -380,8 +559,9 @@ function tryJoin() {
     clearInterval(timer);
     joinRetryFn = null;
     try { conn.close(); } catch {}
-    if (joinAttempts >= JOIN_MAX_ATTEMPTS) {
+    if (joinAttempts >= maxAttempts) {
       joinTarget = null;
+      if (rejoining) { scheduleRejoin(); return; }
       alert('Sala não encontrada.\n\nConfira se o código está igual nos dois PCs e se quem criou ' +
             'a sala ainda está com ela aberta (botão "Criar sala").');
       leaveRoom();
@@ -403,11 +583,12 @@ function tryJoin() {
       return;
     }
     // anfitrião respondeu: a sala existe, agora é a conexão direta
-    setStatus(`Sala encontrada. Conectando diretamente... (${ice})`);
+    if (!rejoining) setStatus(`Sala encontrada. Conectando diretamente... (${ice})`);
     if (ice === 'failed' || elapsed > 30000) {
       clearInterval(timer);
       joinTarget = null;
       joinRetryFn = null;
+      if (rejoining) { scheduleRejoin(); return; }
       alert('A sala existe, mas não foi possível conectar diretamente ao outro computador ' +
             '(bloqueio de firewall ou NAT da rede).\n\n' +
             'Soluções:\n' +
@@ -420,18 +601,36 @@ function tryJoin() {
 let joinAttempts = 0;
 let joinTarget = null;
 
+// Conexão com o servidor de sinalização caiu: tenta voltar com limite de tentativas.
+// (Quem já está conectado continua conversando; o servidor só serve para novas entradas.)
+const SIGNAL_MAX_ATTEMPTS = 8;
+
 function enterRoom(room) {
   roomCode = room;
   leaving = false;
-  peer.on('connection', conn => setupConn(conn, false));
-  peer.on('call', handleIncomingCall);
-  peer.on('disconnected', () => {
-    if (leaving || !peer || peer.destroyed) return;
-    setStatus('Reconectando ao servidor...');
-    setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 2000);
+  const me = peer; // os eventos abaixo só valem para ESTA conexão (a reconexão cria outra)
+  let sigAttempts = 0;
+  me.on('connection', conn => { if (peer === me) setupConn(conn, false); });
+  me.on('call', call => { if (peer === me) handleIncomingCall(call); });
+  me.on('disconnected', () => {
+    if (leaving || peer !== me || me.destroyed) return;
+    const retry = () => {
+      if (leaving || peer !== me || me.destroyed || !me.disconnected) return;
+      sigAttempts++;
+      if (sigAttempts > SIGNAL_MAX_ATTEMPTS) {
+        setStatus('Sem conexão com o servidor. Quem já está na sala continua conectado.');
+        if (connectedCount() === 0 && !rejoining) scheduleRejoin();
+        return;
+      }
+      setStatus(`Reconectando ao servidor... (tentativa ${sigAttempts} de ${SIGNAL_MAX_ATTEMPTS})`);
+      me.reconnect();
+      setTimeout(retry, Math.min(2000 * sigAttempts, 15000));
+    };
+    setTimeout(retry, 1500);
   });
-  peer.on('open', () => updateStatus());
-  peer.on('error', err => {
+  me.on('open', () => { if (peer === me) { sigAttempts = 0; updateStatus(); } });
+  me.on('error', err => {
+    if (peer !== me) return;
     console.warn('peer error', err.type, err);
     if (err.type === 'peer-unavailable') {
       // O servidor respondeu que não existe ninguém com esse ID: a sala realmente não existe
@@ -482,9 +681,11 @@ function handleInvite(room) {
 
 function leaveRoom() {
   leaving = true;
+  rejoining = false;
+  clearTimeout(rejoinTimer);
   stopShare();
   sayGoodbye();
-  for (const id of [...peers.keys()]) removePeer(id);
+  for (const id of [...peers.keys()]) removePeer(id, 'leave');
   if (peer) { peer.destroy(); peer = null; }
   isHost = false;
   $('connectBox').classList.remove('hidden');
@@ -494,12 +695,85 @@ function leaveRoom() {
   renderPeers();
 }
 
+// =====================================================================
+// RECONEXÃO AUTOMÁTICA (com limite de tentativas)
+// Se você perde a conexão com todos (internet piscou), o app volta sozinho para a sala.
+// Não reconecta quando os outros saíram de propósito (mensagem "bye").
+// =====================================================================
+let rejoinCfg = { max: 5, delays: [2000, 4000, 8000, 15000, 30000] };
+let rejoining = false;
+let rejoinAttempt = 0;
+let rejoinTimer = null;
+
+function connectedCount() { return [...peers.values()].filter(p => p.conn && p.conn.open).length; }
+
+function scheduleRejoin() {
+  if (leaving || !roomCode) return;
+  if (!rejoining) {
+    rejoining = true;
+    rejoinAttempt = 0;
+    playSound('warn');
+    showToast('📶 Conexão perdida. Tentando reconectar...', 'warn');
+  }
+  rejoinAttempt++;
+  if (rejoinAttempt > rejoinCfg.max) {
+    rejoining = false;
+    playSound('warn');
+    alert(`Não foi possível reconectar à sala "${roomCode}" depois de ${rejoinCfg.max} tentativas.\n\n` +
+          'Verifique sua internet e entre de novo.');
+    leaveRoom();
+    return;
+  }
+  const delay = rejoinCfg.delays[Math.min(rejoinAttempt - 1, rejoinCfg.delays.length - 1)];
+  setStatus(`Conexão perdida. Reconectando em ${Math.round(delay / 1000)}s (tentativa ${rejoinAttempt} de ${rejoinCfg.max})...`);
+  clearTimeout(rejoinTimer);
+  rejoinTimer = setTimeout(doRejoin, delay);
+}
+
+async function doRejoin() {
+  if (leaving || !rejoining) return;
+  if (connectedCount() > 0) { rejoinSucceeded(); return; }
+  setStatus(`Reconectando... (tentativa ${rejoinAttempt} de ${rejoinCfg.max})`);
+  const wasHost = isHost;
+  const old = peer;
+  peer = null;
+  try { old && old.destroy(); } catch {}
+  try {
+    // o anfitrião tenta recriar a sala com o mesmo código; os outros entram de novo
+    peer = await makePeer(wasHost ? PREFIX + roomCode : undefined);
+  } catch (err) {
+    if (wasHost && err.type === 'unavailable-id') {
+      // o servidor ainda guarda a sala antiga: espera e tenta de novo
+    }
+    peer = null;
+    scheduleRejoin();
+    return;
+  }
+  if (leaving) { try { peer.destroy(); } catch {} peer = null; return; }
+  enterRoom(roomCode);
+  if (wasHost) { rejoinSucceeded(); return; } // a sala voltou; os outros reconectam nela
+  joinTarget = PREFIX + roomCode;
+  joinAttempts = 0;
+  tryJoin();
+}
+
+function rejoinSucceeded() {
+  if (!rejoining) return;
+  rejoining = false;
+  rejoinAttempt = 0;
+  clearTimeout(rejoinTimer);
+  playSound('ok');
+  showToast('📶 Reconectado!', 'ok');
+  updateStatus();
+}
+
 function lockForm(lock) {
   ['hostBtn', 'joinBtn', 'nameInput', 'roomInput'].forEach(id => ($(id).disabled = lock));
 }
 
 function setStatus(t) { $('status').textContent = t; if ($('connBadge')) updateBadge(); }
 function updateStatus() {
+  if (rejoining) return;
   const n = [...peers.values()].filter(p => p.conn && p.conn.open).length;
   setStatus((isHost ? 'Você é o anfitrião. ' : '') + `${n} pessoa(s) conectada(s).`);
 }
@@ -529,7 +803,8 @@ function setupConn(conn, outgoing) {
     if (p.conn && p.conn !== conn && p.conn.open) { conn.close(); return; }
     p.conn = conn;
     p.lastSeen = Date.now();
-    conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted });
+    conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
+    if (rejoining) rejoinSucceeded();
 
     if (isHost) {
       const others = [...peers.keys()].filter(id => id !== conn.peer && peers.get(id).conn);
@@ -558,18 +833,23 @@ function setupConn(conn, outgoing) {
         paintMuted(p);
         break;
       case 'bye':
-        removePeer(p.id);
+        removePeer(p.id, 'bye');
         break;
-      case 'hello':
+      case 'hello': {
+        const first = !p.helloed;
+        p.helloed = true;
         p.name = String(msg.name || 'Sem nome').slice(0, 24);
         p.muted = !!msg.muted;
-        // volumes salvos para esta pessoa (pelo nome)
-        p.vol = store.get('pvol_' + p.name, p.vol);
-        p.screenVol = store.get('psvol_' + p.name, p.screenVol);
+        p.deviceId = typeof msg.deviceId === 'string' ? msg.deviceId.slice(0, 64) : null;
+        // volumes salvos para esta pessoa (por instalação; versões antigas, pelo nome)
+        p.vol = store.get(volKey('pvol', p), p.vol);
+        p.screenVol = store.get(volKey('psvol', p), p.screenVol);
         applyVolumes();
         renderPeers();
-        updateTileName(p);
+        updateAllTileNames();
+        if (first) playSound('join');
         break;
+      }
       case 'peers':
         (msg.list || []).forEach(maybeConnect);
         break;
@@ -578,6 +858,7 @@ function setupConn(conn, outgoing) {
         break;
       case 'screen-stop':
         if (p.screenIn) { p.screenIn.close(); p.screenIn = null; }
+        if (tileEl(p.id)) playSound('share-off');
         removeTile(p.id);
         break;
     }
@@ -585,14 +866,16 @@ function setupConn(conn, outgoing) {
 
   conn.on('close', () => {
     const p = peers.get(conn.peer);
-    if (p && p.conn === conn) removePeer(conn.peer);
+    if (p && p.conn === conn) removePeer(conn.peer, 'closed');
   });
   conn.on('error', e => console.warn('conn error', e));
 }
 
-function removePeer(id) {
+// reason: 'bye' (saiu de propósito), 'leave' (eu saí), 'closed' / 'timeout' (conexão caiu)
+function removePeer(id, reason = 'closed') {
   const p = peers.get(id);
   if (!p) return;
+  const wasConnected = !!(p.conn && p.helloed);
   [p.micCall, p.screenOut, p.screenIn].forEach(c => { try { c && c.close(); } catch {} });
   try { p.conn && p.conn.close(); } catch {}
   if (p.audioEl) { p.audioEl.srcObject = null; p.audioEl.remove(); }
@@ -600,7 +883,16 @@ function removePeer(id) {
   removeTile(id);
   peers.delete(id);
   renderPeers();
+  updateAllTileNames();
   if (peer) updateStatus();
+  if (wasConnected && reason !== 'leave' && !leaving) playSound('leave');
+  // Convidado perdeu a conexão com todos sem ninguém ter saído de propósito → reconecta sozinho.
+  // O anfitrião NÃO recria a sala aqui: ele não tem como saber se quem caiu foi ele ou o
+  // convidado, e a sala dele continua aberta para os outros voltarem.
+  if (wasConnected && (reason === 'closed' || reason === 'timeout') && !leaving && peer && !isHost &&
+      connectedCount() === 0 && !rejoining) {
+    scheduleRejoin();
+  }
 }
 
 // ---------- chamadas de mídia ----------
@@ -619,7 +911,10 @@ function handleIncomingCall(call) {
     const p = getPeer(call.peer);
     if (p.screenIn && p.screenIn !== call) p.screenIn.close();
     p.screenIn = call;
-    call.on('stream', s => showTile(p.id, s, false));
+    call.on('stream', s => {
+      if (!tileEl(p.id)) playSound('share-on');
+      showTile(p.id, s, false);
+    });
     call.on('close', () => { if (p.screenIn === call) { p.screenIn = null; removeTile(p.id); } });
   } else {
     call.close();
@@ -799,7 +1094,10 @@ async function startShare() {
 
   for (const p of peers.values()) if (p.conn && p.conn.open) callScreen(p.id);
 
-  showTile('__local__', new MediaStream([vTrack]), true);
+  localPreview = new MediaStream([vTrack]);
+  showTile('__local__', localPreview, true);
+  applyPreviewHidden();
+  playSound('share-on');
   const b = $('shareBtn');
   b.textContent = '⏹️ Parar compartilhamento';
   b.classList.add('sharing');
@@ -808,6 +1106,8 @@ async function startShare() {
 
 function stopShare() {
   if (!screenStream && !screenRaw) return;
+  if (!leaving) playSound('share-off');
+  localPreview = null;
   for (const p of peers.values()) {
     if (p.screenOut) { try { p.screenOut.close(); } catch {} p.screenOut = null; }
     if (p.conn && p.conn.open) p.conn.send({ type: 'screen-stop' });
@@ -826,6 +1126,24 @@ function stopShare() {
 // =====================================================================
 // INTERFACE: telas e participantes
 // =====================================================================
+// Prévia da sua própria tela compartilhada: pode ser ocultada (economiza GPU)
+let localPreview = null;
+function applyPreviewHidden() {
+  const t = tileEl('__local__');
+  if (!t) return;
+  const hide = store.get('hidePreview', false);
+  t.classList.toggle('collapsed', hide);
+  const v = t.querySelector('video');
+  if (hide) { v.srcObject = null; }
+  else if (localPreview && v.srcObject !== localPreview) { v.srcObject = localPreview; v.play().catch(() => {}); }
+  const b = t.querySelector('.prevBtn');
+  if (b) b.textContent = hide ? '👁️ Mostrar prévia' : '🙈 Ocultar prévia';
+}
+function togglePreview() {
+  store.set('hidePreview', !store.get('hidePreview', false));
+  applyPreviewHidden();
+}
+
 function tileEl(id) { return document.querySelector(`.tile[data-id="${CSS.escape(id)}"]`); }
 function tileVideo(id) { const t = tileEl(id); return t ? t.querySelector('video') : null; }
 
@@ -859,7 +1177,7 @@ function showTile(id, stream, isLocal) {
       r.oninput = () => {
         p.screenVol = r.value / 100;
         val.textContent = r.value + '%';
-        store.set('psvol_' + p.name, p.screenVol);
+        store.set(volKey('psvol', p), p.screenVol);
         applyVolumes();
       };
       bar.append(lbl, r, val);
@@ -868,7 +1186,11 @@ function showTile(id, stream, isLocal) {
       const q = document.createElement('span');
       q.className = 'q';
       q.title = 'A qualidade baixa sozinha para quem está com a rede lenta';
-      bar.appendChild(q);
+      const pb = document.createElement('button');
+      pb.className = 'prevBtn';
+      pb.title = 'Ocultar a prévia da sua tela (os outros continuam vendo)';
+      pb.onclick = togglePreview;
+      bar.append(q, pb);
     }
     const mut = document.createElement('span');
     mut.className = 'tmut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
@@ -882,7 +1204,7 @@ function showTile(id, stream, isLocal) {
     $('grid').appendChild(t);
   }
   const v = t.querySelector('video');
-  if (v.srcObject !== stream) {
+  if (v.srcObject !== stream && !(isLocal && t.classList.contains('collapsed'))) {
     v.srcObject = stream;
     v.play().catch(() => {});
     if (!isLocal) attachScreenAudio(getPeer(id), stream);
@@ -908,7 +1230,14 @@ function attachScreenAudio(p, stream) {
 
 function updateTileName(p) {
   const t = tileEl(p.id);
-  if (t) t.querySelector('.who').textContent = p.name;
+  if (!t) return;
+  const who = t.querySelector('.who');
+  who.textContent = '';
+  if (p.id === '__local__') { who.textContent = p.name; return; }
+  who.append(makeAvatar(p), document.createTextNode(' ' + displayName(p)));
+}
+function updateAllTileNames() {
+  for (const p of peers.values()) updateTileName(p);
 }
 
 function removeTile(id) {
@@ -929,6 +1258,7 @@ function toggleFullscreen(el) {
 }
 
 function renderPeers() {
+  assignColors();
   const ul = $('peerList');
   ul.innerHTML = '';
   const list = [...peers.values()].filter(p => p.conn);
@@ -944,10 +1274,11 @@ function renderPeers() {
     top.className = 'pname';
     const dot = document.createElement('span'); dot.className = 'dot wait';
     dot.title = 'Qualidade da conexão';
-    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = p.name;
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = displayName(p);
+    if (p.deviceId) nm.title = 'ID desta instalação: ' + peerTag(p);
     const spk = document.createElement('span'); spk.className = 'spk'; spk.textContent = '🔊';
     const mut = document.createElement('span'); mut.className = 'mut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
-    top.append(dot, nm, spk, mut);
+    top.append(dot, makeAvatar(p), nm, spk, mut);
 
     const net = document.createElement('div');
     net.className = 'net';
@@ -963,7 +1294,7 @@ function renderPeers() {
     r.oninput = () => {
       p.vol = r.value / 100;
       val.textContent = r.value + '%';
-      store.set('pvol_' + p.name, p.vol);
+      store.set(volKey('pvol', p), p.vol);
       applyVolumes();
     };
     lbl.appendChild(r);
@@ -992,7 +1323,7 @@ function heartbeatLoop() {
     const dead = pcs.some(pc => pc.connectionState === 'failed' || pc.connectionState === 'closed');
     if (dead || now - (p.lastSeen || now) > PEER_TIMEOUT_MS) {
       console.warn('Removendo participante sem resposta:', p.name);
-      removePeer(p.id);
+      removePeer(p.id, 'timeout');
     }
   }
   setTimeout(heartbeatLoop, HEARTBEAT_MS);
@@ -1025,7 +1356,8 @@ function updateBadge() {
   const text = $('connText');
   const n = [...peers.values()].filter(p => p.conn && p.conn.open).length;
   let cls, t;
-  if (!peer) { cls = 'off'; t = 'Desconectado'; }
+  if (rejoining) { cls = 'bad'; t = `Reconectando (${rejoinAttempt} de ${rejoinCfg.max})...`; }
+  else if (!peer) { cls = 'off'; t = 'Desconectado'; }
   else if (peer.disconnected) { cls = 'bad'; t = n ? `Servidor caiu · reconectando (${n} ainda conectado${n > 1 ? 's' : ''})` : 'Sem servidor · reconectando...'; }
   else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
   else if (n) {
@@ -1119,6 +1451,43 @@ async function showLicenseTab(key) {
   }
 }
 
+// ---------- aviso de nova versão ----------
+function parseVer(v) { return String(v || '').replace(/^v/i, '').split(/[.-]/).slice(0, 3).map(n => parseInt(n, 10) || 0); }
+function isNewer(latest, current) {
+  const a = parseVer(latest), b = parseVer(current);
+  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; }
+  return false;
+}
+let updateInfo = null;
+async function checkUpdate(manual = false) {
+  const box = $('updateText');
+  box.textContent = 'Verificando...';
+  $('updateDownload').classList.add('hidden');
+  let current = '0.0.0';
+  try { current = await window.native.getVersion(); } catch {}
+  let r;
+  try { r = await window.native.checkUpdate(); } catch { r = { error: 'offline' }; }
+  updateInfo = r;
+  if (!r || r.error) {
+    box.textContent = r && r.error === 'not-found'
+      ? 'Não foi possível verificar: nenhuma versão pública encontrada no GitHub.'
+      : 'Não foi possível verificar agora (sem internet?).';
+    return;
+  }
+  if (isNewer(r.tag, current)) {
+    box.innerHTML = '';
+    const strong = document.createElement('strong');
+    strong.textContent = `Nova versão ${r.tag} disponível!`;
+    box.append(strong, document.createTextNode(` Você está na v${current}.`));
+    $('updateDownload').classList.remove('hidden');
+    $('aboutBtn').classList.add('has-update');
+    if (!manual) showToast(`⬆️ Nova versão ${r.tag} disponível. Clique no botão "i" para baixar.`, 'info', 8000);
+  } else {
+    box.textContent = `✅ Você está na versão mais recente (v${current}).`;
+    $('aboutBtn').classList.remove('has-update');
+  }
+}
+
 function openAbout() {
   $('about').classList.remove('hidden');
   showLicenseTab('license');
@@ -1139,6 +1508,8 @@ function initAbout() {
     $('thirdText').scrollTop = 0;
   }));
   $('chromiumLic').onclick = () => window.native.openChromiumLicenses();
+  $('updateCheck').onclick = () => checkUpdate(true);
+  $('updateDownload').onclick = () => window.native.openLink('releases');
 }
 
 // =====================================================================
@@ -1158,6 +1529,13 @@ async function init() {
   $('echoChk').checked = store.get('echo', true);
   $('agcChk').checked = store.get('agc', false);
   $('duckChk').checked = store.get('duck', true);
+  $('soundChk').checked = store.get('sounds', true);
+  $('soundVol').value = store.get('soundVol', 60);
+  $('soundVolVal').textContent = $('soundVol').value + '%';
+  $('soundChk').onchange = () => store.set('sounds', $('soundChk').checked);
+  $('soundVol').oninput = () => { $('soundVolVal').textContent = $('soundVol').value + '%'; store.set('soundVol', +$('soundVol').value); };
+  $('soundVol').onchange = () => playSound('join');
+  $('diceBtn').onclick = () => { $('roomInput').value = generateRoomCode(); $('roomInput').select(); };
   $('duckChk').onchange = () => { store.set('duck', $('duckChk').checked); applyVolumes(); };
   $('shareAudioChk').checked = store.get('shareAudio', true);
   $('qualitySelect').value = store.get('quality', '1080_30');
@@ -1170,7 +1548,7 @@ async function init() {
   await openMic(store.get('mic', ''));
   await refreshDevices();
   await setOutputDevice($('outSelect').value);
-  navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+  navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
   applyVolumes();
   meterLoop();
   setInterval(voiceLoop, VOICE_INTERVAL_MS);
@@ -1188,6 +1566,7 @@ async function init() {
   $('inviteBtn').onclick = copyInvite;
   $('projectLink').onclick = e => { e.preventDefault(); window.native.openProject && window.native.openProject(); };
   initAbout();
+  checkUpdate(false); // uma consulta ao abrir; mostra aviso se houver versão nova
   $('licenseLink').onclick = e => { e.preventDefault(); window.native.openLicense && window.native.openLicense(); };
   try {
     const v = 'v' + (await window.native.getVersion());

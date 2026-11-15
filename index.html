@@ -44,7 +44,10 @@
         <input id="nameInput" maxlength="24" placeholder="Ex: Juliano">
       </label>
       <label>Código da sala
-        <input id="roomInput" maxlength="32" placeholder="Ex: minhasala123">
+        <span class="room-row">
+          <input id="roomInput" maxlength="32" placeholder="Ex: minhasala123">
+          <button id="diceBtn" type="button" title="Gerar um código aleatório que ninguém mais vai usar">🎲</button>
+        </span>
       </label>
       <div class="row">
         <button id="hostBtn" class="primary">Criar sala</button>
@@ -79,6 +82,7 @@
       <label>Microfone
         <select id="micSelect"></select>
       </label>
+      <p id="micWarn" class="warn-box hidden">⚠️ Nenhum microfone encontrado. Conecte um microfone; o app usa ele assim que aparecer.</p>
       <label>Ganho do microfone: <span id="micVolVal">100%</span>
         <input type="range" id="micVol" min="0" max="400" step="5" value="100">
       </label>
@@ -103,6 +107,10 @@
       </label>
       <button id="testOutBtn">🔊 Testar som</button>
       <label class="check"><input type="checkbox" id="duckChk" checked> Abaixar o som das telas quando alguém fala</label>
+      <label class="check"><input type="checkbox" id="soundChk" checked> Sons de aviso (entrou, saiu, mudo, tela...)</label>
+      <label>Volume dos avisos: <span id="soundVolVal">60%</span>
+        <input type="range" id="soundVol" min="0" max="100" step="5" value="60">
+      </label>
       <p class="hint">O volume de cada pessoa (até 400%) fica em Participantes.</p>
     </section>
 
@@ -168,6 +176,15 @@
       </div>
       <p class="hint about-url">github.com/JulianoMachadoS/telashare</p>
 
+      <h3>Atualizações</h3>
+      <div class="update-box">
+        <span id="updateText" class="about-text">Verificando...</span>
+        <div class="row">
+          <button id="updateCheck">🔄 Verificar agora</button>
+          <button id="updateDownload" class="primary hidden">⬇️ Baixar nova versão</button>
+        </div>
+      </div>
+
       <h3>Licença</h3>
       <p class="about-text">
         O TelaShare é <strong>software livre</strong> sob a <strong>GNU Affero General Public License v3.0</strong>
@@ -208,6 +225,9 @@
       </div>
     </div>
   </div>
+
+  <!-- avisos rápidos (toasts) -->
+  <div id="toasts" aria-live="polite"></div>
 
   <script src="node_modules/peerjs/dist/peerjs.min.js"></script>
   <script src="renderer.js"></script>

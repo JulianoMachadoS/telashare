@@ -17,7 +17,7 @@
  * along with this program. If not, see https://www.gnu.org/licenses/.
  */
 
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell } = require('electron');
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -182,6 +182,23 @@ app.whenReady().then(() => {
     return shell.openExternal(EXTERNAL_LINKS.chromium);
   });
   ipcMain.handle('get-version', () => app.getVersion());
+
+  // Aviso de nova versão: consulta a última release no GitHub (uma requisição pequena,
+  // ao abrir o app e quando o usuário clica em "Verificar agora")
+  ipcMain.handle('check-update', async () => {
+    try {
+      const r = await net.fetch('https://api.github.com/repos/JulianoMachadoS/telashare/releases/latest', {
+        headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': 'TelaShare' }
+      });
+      // 404 = ainda não há release pública (ou o repositório é privado)
+      if (r.status === 404) return { error: 'not-found' };
+      if (!r.ok) return { error: 'http-' + r.status };
+      const j = await r.json();
+      return { tag: j.tag_name, url: j.html_url, published: j.published_at };
+    } catch {
+      return { error: 'offline' };
+    }
+  });
 
   ipcMain.handle('copy-text', (_e, text) => { clipboard.writeText(String(text)); return true; });
 
