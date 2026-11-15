@@ -49,6 +49,46 @@ const LICENSE_FILES = {
   // vêm junto com o Electron, ao lado do executável
   electron: () => path.join(path.dirname(process.execPath), 'LICENSE.electron.txt')
 };
+// ---------- atualização automática (#44) ----------
+// Só na versão INSTALADA (TelaShare-Setup). O app baixa a versão nova das releases do GitHub
+// em segundo plano (só a diferença) e instala ao reiniciar. O .exe portátil não consegue se
+// substituir com segurança: continua com o aviso de nova versão + botão de download.
+const IS_PORTABLE = !!process.env.PORTABLE_EXECUTABLE_FILE;
+const CAN_AUTO_UPDATE = app.isPackaged && process.platform === 'win32' && !IS_PORTABLE;
+const UPDATE_EVERY_MS = 4 * 60 * 60 * 1000;
+let autoUpdater = null;
+let updateState = { mode: CAN_AUTO_UPDATE ? 'auto' : 'manual', status: 'idle' };
+
+function sendUpdate(patch) {
+  updateState = Object.assign({}, updateState, patch);
+  if (win && !win.isDestroyed()) win.webContents.send('update-status', updateState);
+}
+
+function setupAutoUpdater() {
+  if (!CAN_AUTO_UPDATE) return;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    console.warn('electron-updater indisponível', e);
+    updateState.mode = 'manual';
+    return;
+  }
+  autoUpdater.autoDownload = true;          // baixa sozinho em segundo plano
+  autoUpdater.autoInstallOnAppQuit = true;  // se não reiniciar agora, instala ao fechar o app
+  autoUpdater.on('checking-for-update', () => sendUpdate({ status: 'checking', error: null }));
+  autoUpdater.on('update-available', i => sendUpdate({ status: 'downloading', version: i.version, percent: 0 }));
+  autoUpdater.on('update-not-available', () => sendUpdate({ status: 'latest' }));
+  autoUpdater.on('download-progress', p => sendUpdate({ status: 'downloading', percent: Math.round(p.percent || 0) }));
+  autoUpdater.on('update-downloaded', i => sendUpdate({ status: 'ready', version: i.version }));
+  autoUpdater.on('error', e => {
+    // com o download já pronto, um erro de uma verificação posterior não desfaz o "pronto"
+    if (updateState.status !== 'ready') sendUpdate({ status: 'error', error: String((e && e.message) || e).slice(0, 200) });
+  });
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 5000);
+  setInterval(check, UPDATE_EVERY_MS);
+}
+
 let win;
 let chosenSourceId = null;
 let chosenWithAudio = true;
@@ -203,6 +243,18 @@ app.whenReady().then(() => {
     }
   });
 
+  // atualização automática (só na versão instalada; veja setupAutoUpdater)
+  ipcMain.handle('update-state', () => updateState);
+  ipcMain.handle('update-check', () => {
+    if (autoUpdater && updateState.status !== 'ready') autoUpdater.checkForUpdates().catch(() => {});
+    return updateState;
+  });
+  ipcMain.handle('update-install', () => {
+    if (!autoUpdater || updateState.status !== 'ready') return false;
+    setImmediate(() => autoUpdater.quitAndInstall(true, true)); // instala em silêncio e abre de novo
+    return true;
+  });
+
   ipcMain.handle('copy-text', (_e, text) => { clipboard.writeText(String(text)); return true; });
 
   // O renderer pede o convite pendente quando termina de carregar
@@ -214,6 +266,7 @@ app.whenReady().then(() => {
 
   registerProtocol();
   createWindow();
+  setupAutoUpdater();
 });
 
 app.on('window-all-closed', () => app.quit());

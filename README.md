@@ -7,9 +7,15 @@ Compartilhamento de tela **com áudio** entre 2 ou mais computadores Windows, co
 
 ## ⬇️ Download
 
-Baixe o **`TelaShare.exe`** na página de [**Releases**](../../releases/latest).
+Na página de [**Releases**](../../releases/latest) há duas opções:
 
-É portátil, não precisa instalar: só abrir.
+| Arquivo | Para quem | Atualização |
+|---|---|---|
+| **`TelaShare-Setup-X.Y.Z.exe`** (recomendado) | Instala em poucos segundos, sem pedir administrador, e cria atalho na área de trabalho | **Automática:** o app baixa a versão nova sozinho e pede para reiniciar |
+| **`TelaShare.exe`** | Portátil: não instala, é só abrir | Manual: o app avisa e abre a página de download |
+
+Os dois funcionam juntos na mesma sala. Os arquivos `latest.yml` e `.blockmap` da release são
+usados pela atualização automática e você não precisa baixá-los.
 
 > **Aviso do Windows (SmartScreen):** o executável não tem assinatura digital, então o Windows pode
 > mostrar "O Windows protegeu o computador". Clique em **Mais informações → Executar assim mesmo**.
@@ -89,8 +95,9 @@ O app guarda suas configurações para a próxima vez.
 
 O botão **i** no topo, ao lado do indicador de conexão, abre a janela **Sobre**, com:
 - versão instalada e copyright;
-- **Atualizações:** avisa quando existe uma versão nova no GitHub (também aparece uma bolinha
-  vermelha no botão **i**), com botão para baixar. *Só funciona com o repositório público.*
+- **Atualizações** (o app baixa as versões novas das releases públicas do GitHub):
+  - **versão instalada:** baixa a versão nova sozinha, em segundo plano (só a diferença entre as versões), ao abrir o app e a cada 4 horas. Quando termina, aparece "⬆️ Versão X baixada" e o botão **🔄 Reiniciar e atualizar**. Se você não reiniciar, ela é instalada quando você fechar o app. Se você estiver numa sala, o app pergunta antes de reiniciar.
+  - **versão portátil:** avisa quando existe uma versão nova, com bolinha vermelha no botão **i**, e mostra um botão para baixar.
 - botões para o **projeto pai no GitHub**, para as **versões/downloads** e para **reportar um problema**;
 - a **licença AGPLv3** completa, o **NOTICE** e as **licenças dos componentes de terceiros**
   (PeerJS, Electron e Chromium).
@@ -242,7 +249,7 @@ Requisitos: [Node.js](https://nodejs.org) 20 ou mais recente.
 ```bash
 npm install
 npm start          # roda em modo desenvolvimento
-npm run dist       # gera dist/TelaShare.exe (Windows x64, portátil)
+npm run dist       # gera dist/TelaShare-Setup-X.Y.Z.exe (instalador) e dist/TelaShare.exe (portátil), Windows x64
 npm test           # testes automatizados LOCAIS (veja abaixo)
 ```
 
@@ -299,6 +306,8 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 30 | **(#33)** A chamada da tela falha nas primeiras vezes e é refeita até aparecer; o vídeo cai depois de conectado e volta sozinho, sem afetar a voz |
 | 31 | **(#35)** Compartilhar com áudio pede a captura **sem** o som do próprio app e avisa quando o sistema não consegue separar (captura simulada: o áudio do PC real só existe no Windows) |
 | 32 | **(#34)** "Copiar diagnóstico": mostra cada ligação (dados e voz, com o tipo de conexão), quem está na sala sem ligação e os últimos eventos, sem endereços IP |
+| 33 | **(#44)** Atualização automática na versão instalada: progresso do download, "Reiniciar e atualizar" (pergunta antes de sair da sala), mensagens de versão mais recente e de erro (o electron-updater é simulado) |
+| 34 | **(#44)** Configuração do pacote: instalador NSIS + portátil, publicação no GitHub e atualizador só na versão instalada |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
@@ -314,13 +323,14 @@ Os testes usam um microfone falso do Chromium (um bipe) e ficam em `test/local-e
 
 A cada push na branch `main`, o GitHub:
 1. roda os **testes locais** no **Windows** e no **Linux** (cada um numa única máquina virtual; continuam sendo testes LOCAIS);
-2. gera o `TelaShare.exe` **no Windows**, disponível em *Actions → execução → Artifacts*.
+2. gera **no Windows** o instalador (`TelaShare-Setup-X.Y.Z.exe` + `latest.yml` + `.blockmap`) e o portátil `TelaShare.exe`, disponíveis em *Actions → execução → Artifacts*.
 
 Para publicar uma versão nova, crie e envie uma tag:
 ```bash
 git tag v1.3.0 && git push origin v1.3.0
 ```
-O CI gera o `.exe` e cria a Release sozinho. Se existir `release-notes/<tag>.md`, ele é usado como
+O CI gera os arquivos e cria a Release sozinho. Quem usa a versão instalada recebe a atualização
+automaticamente, porque o app lê o `latest.yml` da última release. Se existir `release-notes/<tag>.md`, ele é usado como
 descrição da release.
 
 ## 📄 Licença e Direitos de Uso

@@ -35,7 +35,9 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run -a npx electron --no-sandbox test/local-e2e.js
 
-  # Gera o .exe no Windows de verdade (com ícone e metadados aplicados)
+  # Gera no Windows de verdade (com ícone e metadados aplicados):
+  #  - TelaShare-Setup-X.Y.Z.exe + latest.yml + .blockmap: instalador que se atualiza sozinho (#44)
+  #  - TelaShare.exe: versão portátil
   build:
     name: Gerar TelaShare.exe
     needs: test
@@ -49,10 +51,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run dist
+      - name: Conferir os arquivos gerados
+        shell: bash
+        run: |
+          ls -la dist
+          test -f dist/TelaShare.exe
+          test -f dist/latest.yml
+          ls dist/TelaShare-Setup-*.exe dist/TelaShare-Setup-*.exe.blockmap
+          # o latest.yml precisa apontar para o instalador desta versão
+          v=$(node -p "require('./package.json').version")
+          grep -q "TelaShare-Setup-$v.exe" dist/latest.yml
       - uses: actions/upload-artifact@v7
         with:
           name: TelaShare-exe
-          path: dist/TelaShare.exe
+          path: |
+            dist/TelaShare.exe
+            dist/TelaShare-Setup-*.exe
+            dist/TelaShare-Setup-*.exe.blockmap
+            dist/latest.yml
           retention-days: 14
 
   # Ao criar uma tag v*, publica a release com o .exe gerado acima
@@ -73,13 +89,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          ls -la
+          files=(TelaShare.exe TelaShare-Setup-*.exe TelaShare-Setup-*.exe.blockmap latest.yml)
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release upload "$TAG" TelaShare.exe --clobber
+            gh release upload "$TAG" "${files[@]}" --clobber
           else
             notes="release-notes/$TAG.md"
             if [ -f "$notes" ]; then
-              gh release create "$TAG" TelaShare.exe --title "TelaShare $TAG" --notes-file "$notes"
+              gh release create "$TAG" "${files[@]}" --title "TelaShare $TAG" --notes-file "$notes"
             else
-              gh release create "$TAG" TelaShare.exe --title "TelaShare $TAG" --generate-notes
+              gh release create "$TAG" "${files[@]}" --title "TelaShare $TAG" --generate-notes
             fi
           fi

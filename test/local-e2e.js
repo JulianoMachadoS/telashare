@@ -49,6 +49,12 @@ ipcMain.handle('open-link', (_e, k) => { openedLinks.push(k); return true; });
 ipcMain.handle('open-chromium-licenses', () => true);
 let updateReply = { error: 'not-found' };
 ipcMain.handle('check-update', () => updateReply);
+// atualização automática (#44): por padrão, como o .exe portátil (modo manual)
+let updateStateReply = { mode: 'manual', status: 'idle' };
+const updateCalls = [];
+ipcMain.handle('update-state', () => updateStateReply);
+ipcMain.handle('update-check', () => { updateCalls.push('check'); return updateStateReply; });
+ipcMain.handle('update-install', () => { updateCalls.push('install'); return true; });
 ipcMain.handle('read-license', (_e, k) => {
   const files = { license: 'LICENSE', notice: 'NOTICE', peerjs: 'node_modules/peerjs/LICENSE' };
   try { return require('fs').readFileSync(path.join(APP, files[k]), 'utf8'); } catch { return null; }
@@ -615,6 +621,51 @@ app.whenReady().then(async () => {
     check('32d. (#34) Diagnóstico não expõe endereços IP', noIp);
     if (process.env.MOSTRAR || !(hostLine && voice && missing && events && noIp)) console.log(d.split('\n').map(l => '    | ' + l).join('\n'));
     destroy([A, B, C]); }
+  // 33. (#44) Atualização automática na versão instalada (o electron-updater é simulado:
+  //     o teste envia os mesmos avisos que o processo principal envia)
+  if (want(33)) {
+    updateStateReply = { mode: 'auto', status: 'idle' }; updateCalls.length = 0;
+    const A = mk(); await ready([A]); await wait(500);
+    const send = st => A.webContents.send('update-status', Object.assign({ mode: 'auto' }, st));
+    const ui = () => js(A, '({ txt: updateText.textContent, btn: !updateDownload.classList.contains("hidden") ? updateDownload.textContent : null, dot: aboutBtn.classList.contains("has-update"), toasts: toastLog.slice() })');
+    await js(A, 'updateCheck.click(); 1'); await wait(200);
+    send({ status: 'downloading', version: '9.9.9', percent: 42 }); await wait(200);
+    const dl = await ui();
+    send({ status: 'ready', version: '9.9.9' }); await wait(200);
+    const rd = await ui();
+    check('33a. (#44) Versão instalada: mostra o download em andamento e depois "Reiniciar e atualizar"',
+      /Baixando a versão v9\.9\.9\.\.\. 42%/.test(dl.txt) && dl.btn === null && dl.dot &&
+      /v9\.9\.9 pronta para instalar/.test(rd.txt) && /Reiniciar e atualizar/.test(rd.btn || '') && rd.toasts.some(t => /v9\.9\.9 baixada/.test(t)) && updateCalls.includes('check'),
+      JSON.stringify({ dl, rd: rd.txt, btn: rd.btn, calls: updateCalls }));
+    // em uma sala: pede confirmação; recusando, não reinicia
+    const room = rid(); await host(A, room);
+    await until(async () => await js(A, '!!(peer && peer.open)'), 15000);
+    await js(A, 'window.confirm = () => false; updateDownload.click(); 1'); await wait(500);
+    const refused = !updateCalls.includes('install') && (await js(A, '!!peer'));
+    await js(A, 'window.confirm = () => true; updateDownload.click(); 1'); await wait(800);
+    const installed = updateCalls.includes('install') && (await js(A, '!peer'));
+    check('33b. (#44) "Reiniciar e atualizar" pergunta antes de sair da sala e só então instala', refused && installed, JSON.stringify({ refused, installed, calls: updateCalls }));
+    send({ status: 'latest' }); await wait(200);
+    const lt = await ui();
+    send({ status: 'error', error: 'HttpError: 404' }); await wait(200);
+    const er = await ui();
+    check('33c. (#44) Mensagens de "versão mais recente" e de erro (ex.: repositório privado)',
+      /mais recente \(v0\.0\.0-teste\)/.test(lt.txt) && !lt.dot && /Não foi possível verificar/.test(er.txt), JSON.stringify({ lt: lt.txt, er: er.txt }));
+    updateStateReply = { mode: 'manual', status: 'idle' };
+    destroy([A]); }
+  // 34. (#44) O pacote do instalador está configurado para se atualizar pelo GitHub
+  if (want(34)) {
+    const pkg = JSON.parse(require('fs').readFileSync(path.join(APP, 'package.json'), 'utf8'));
+    const b = pkg.build || {};
+    const pub = [].concat(b.publish || [])[0] || {};
+    const mainSrc = require('fs').readFileSync(path.join(APP, 'main.js'), 'utf8');
+    check('34. (#44) Instalador NSIS + portátil, publicação no GitHub e electron-updater só na versão instalada',
+      [].concat(b.win.target).includes('nsis') && [].concat(b.win.target).includes('portable') &&
+      pub.provider === 'github' && pub.owner === 'JulianoMachadoS' && pub.repo === 'telashare' &&
+      !!(pkg.dependencies || {})['electron-updater'] && b.files.some(f => /^node_modules\/\*\*/.test(f)) &&
+      /!IS_PORTABLE/.test(mainSrc) && /require\('electron-updater'\)/.test(mainSrc) && /--publish never/.test(pkg.scripts.dist),
+      JSON.stringify({ target: b.win.target, pub, dist: pkg.scripts.dist }));
+  }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

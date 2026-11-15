@@ -1,7 +1,7 @@
 {
   "name": "telashare",
   "productName": "TelaShare",
-  "version": "1.3.6",
+  "version": "1.4.0",
   "description": "TelaShare - compartilhamento de tela com áudio",
   "main": "main.js",
   "author": "Juliano Machado da Silva (https://github.com/JulianoMachadoS)",
@@ -13,10 +13,11 @@
   "homepage": "https://github.com/JulianoMachadoS/telashare#readme",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable --x64",
+    "dist": "electron-builder --win nsis portable --x64 --publish never",
     "test": "electron test/local-e2e.js"
   },
   "dependencies": {
+    "electron-updater": "6.8.11",
     "peerjs": "1.5.5"
   },
   "devDependencies": {
@@ -33,13 +34,15 @@
       "renderer.js",
       "style.css",
       "build/icon.png",
-      "node_modules/peerjs/dist/peerjs.min.js",
       "LICENSE",
       "NOTICE",
-      "node_modules/peerjs/LICENSE"
+      "node_modules/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build/icon.ico",
       "signExecutable": false,
       "legalTrademarks": "TelaShare - AGPL-3.0-or-later"
@@ -58,6 +61,24 @@
         "schemes": [
           "telashare"
         ]
+      }
+    ],
+    "nsis": {
+      "artifactName": "TelaShare-Setup-${version}.${ext}",
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TelaShare",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JulianoMachadoS",
+        "repo": "telashare",
+        "releaseType": "release"
       }
     ]
   }
