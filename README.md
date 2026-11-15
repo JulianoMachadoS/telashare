@@ -125,6 +125,11 @@ o app avisa e volta para a tela inicial.
 - Quem sai **de propósito** ("Sair da sala" ou fechando o app) não dispara reconexão nos outros.
 - O **anfitrião** mantém a sala aberta e só reconecta ao servidor; quem volta são os convidados.
 
+**Com 3 ou mais pessoas**, cada par tem a sua própria ligação direta. Se cair **só** a ligação
+entre você e uma pessoa (e o resto da sala continuar), o app religa esse par sozinho: aparece
+"📶 Conexão com Fulano caiu. Religando..." e depois "✅ Religado com Fulano" (até 6 tentativas).
+Para isso, cada participante avisa a cada 3 s com quem está ligado, e todos sabem quem continua na sala.
+
 ## ⚙️ Como funciona a conexão
 
 Não existe servidor próprio nem túnel. Funciona em duas etapas:
@@ -233,7 +238,8 @@ style.css     visual
 > indicador de conexão), mas **não substituem um teste real entre PCs em casas diferentes**.
 
 ```bash
-npm test     # leva ~4 minutos e precisa de internet (usa o servidor público do PeerJS)
+npm test             # todos; leva ~5 minutos e precisa de internet (usa o servidor público do PeerJS)
+npm test -- 4 27     # só os módulos indicados (pelo número do teste), para testar uma correção
 ```
 
 **O que é testado:**
@@ -261,6 +267,7 @@ npm test     # leva ~4 minutos e precisa de internet (usa o servidor público do
 | 23 | Aviso de nova versão |
 | 24 | Microfone desconectado → passa para o padrão e avisa |
 | 25–26 | 🎲 código aleatório; ocultar a minha prévia |
+| 27 | **(#31)** Três pessoas: só a ligação entre dois convidados cai e é religada sozinha, com voz nos dois sentidos; quem sai de propósito não é religado |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

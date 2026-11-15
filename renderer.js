@@ -686,6 +686,7 @@ function leaveRoom() {
   stopShare();
   sayGoodbye();
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
+  clearMesh();
   if (peer) { peer.destroy(); peer = null; }
   isHost = false;
   $('connectBox').classList.remove('hidden');
@@ -737,6 +738,9 @@ async function doRejoin() {
   const wasHost = isHost;
   const old = peer;
   peer = null;
+  // ligações em andamento eram do ID antigo; quem está na sala (roster) continua valendo
+  for (const { conn } of pending.values()) { try { conn.close(); } catch {} }
+  pending.clear(); pairRetry.clear();
   try { old && old.destroy(); } catch {}
   try {
     // o anfitrião tenta recriar a sala com o mesmo código; os outros entram de novo
@@ -789,18 +793,85 @@ function getPeer(id) {
   return p;
 }
 
-// Liga em outro participante. Regra: o ID menor inicia, para não haver conexão duplicada.
+// =====================================================================
+// MALHA: quem está na sala e religação de pares
+// Cada participante avisa a cada 3 s com quem está ligado (mensagem 'roster'). Assim todos
+// sabem quem continua na sala mesmo quando a ligação DIRETA com alguém caiu, e o par é
+// religado sozinho (com limite de tentativas), sem precisar sair e entrar de novo.
+// Regra para não haver conexão duplicada: só o ID menor inicia a ligação.
+// =====================================================================
+const MESH_MS = 3000;
+const ROSTER_TTL_MS = 12000;          // ninguém confirmou a pessoa nesse tempo → saiu da sala
+const PAIR_CONNECT_TIMEOUT_MS = 15000; // tentativa de ligação que não abriu nesse tempo → falhou
+let pairCfg = { max: 6, delays: [1000, 2000, 4000, 8000, 15000, 30000] };
+const roster = new Map();     // id -> último momento em que alguém confirmou que a pessoa está na sala
+const pairRetry = new Map();  // id -> { n, next }: tentativas de religar um par
+const pending = new Map();    // id -> { conn, at }: ligação de saída ainda não aberta
+const relinking = new Map();  // id -> nome: pares que caíram e estão sendo religados
+
+function vouch(id, at = Date.now()) { if (peer && id && id !== peer.id) roster.set(id, at); }
+function isOpen(id) { const p = peers.get(id); return !!(p && p.conn && p.conn.open); }
+
+function dial(id) {
+  const conn = peer.connect(id, { reliable: true });
+  pending.set(id, { conn, at: Date.now() });
+  setupConn(conn, true);
+}
+
+// Primeira ligação com alguém que o anfitrião apresentou ('peers' / 'joined')
 function maybeConnect(id) {
-  if (!peer || id === peer.id) return;
-  const p = peers.get(id);
-  if (p && p.conn) return;
-  if (peer.id < id) setupConn(peer.connect(id, { reliable: true }), true);
+  if (!peer || !id || id === peer.id) return;
+  vouch(id);
+  if (isOpen(id) || pending.has(id) || pairRetry.has(id)) return;
+  if (peer.id < id) dial(id);
+}
+
+function clearMesh() {
+  for (const { conn } of pending.values()) { try { conn.close(); } catch {} }
+  roster.clear(); pairRetry.clear(); pending.clear(); relinking.clear();
+}
+
+function meshLoop() {
+  setTimeout(meshLoop, MESH_MS);
+  if (!peer || leaving || rejoining) return;
+  const now = Date.now();
+  const open = [...peers.values()].filter(p => p.conn && p.conn.open).map(p => p.id);
+  open.forEach(id => vouch(id, now));
+  broadcast({ type: 'roster', list: open });
+  for (const [id, pc] of [...pending]) {
+    if (!pc.conn.open && now - pc.at > PAIR_CONNECT_TIMEOUT_MS) {
+      pending.delete(id);
+      try { pc.conn.close(); } catch {}
+    }
+  }
+  for (const [id, seen] of [...roster]) {
+    if (isOpen(id)) { pairRetry.delete(id); continue; }
+    if (now - seen > ROSTER_TTL_MS) { roster.delete(id); pairRetry.delete(id); relinking.delete(id); continue; }
+    if (peer.id > id || pending.has(id)) continue; // o outro lado é quem inicia
+    const r = pairRetry.get(id) || { n: 0, next: 0 };
+    if (r.n >= pairCfg.max || now < r.next) continue;
+    r.n++;
+    r.next = now + pairCfg.delays[Math.min(r.n - 1, pairCfg.delays.length - 1)];
+    pairRetry.set(id, r);
+    dial(id);
+  }
 }
 
 function setupConn(conn, outgoing) {
   conn.on('open', () => {
     const p = getPeer(conn.peer);
-    if (p.conn && p.conn !== conn && p.conn.open) { conn.close(); return; }
+    if (pending.has(conn.peer) && pending.get(conn.peer).conn === conn) pending.delete(conn.peer);
+    if (p.conn && p.conn !== conn) {
+      if (outgoing && p.conn.open) { conn.close(); return; }
+      // Ligação nova chegando de quem já estava na lista: a antiga morreu do lado de lá
+      // (só o ID menor inicia, então não é duplicata). Troca e refaz voz e tela.
+      const old = p.conn;
+      p.conn = conn;
+      try { old.close(); } catch {}
+      [p.micCall, p.screenIn, p.screenOut].forEach(c => { try { c && c.close(); } catch {} });
+      p.micCall = p.screenIn = p.screenOut = null;
+      removeTile(p.id);
+    }
     p.conn = conn;
     p.lastSeen = Date.now();
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
@@ -848,8 +919,17 @@ function setupConn(conn, outgoing) {
         renderPeers();
         updateAllTileNames();
         if (first) playSound('join');
+        if (relinking.has(p.id)) {
+          relinking.delete(p.id);
+          showToast(`✅ Religado com ${displayName(p)}`, 'ok');
+        }
         break;
       }
+      case 'roster':
+        // quem o outro participante tem ligado agora: confirma que essas pessoas estão na sala
+        vouch(p.id);
+        (msg.list || []).slice(0, 64).forEach(id => { if (typeof id === 'string') vouch(id); });
+        break;
       case 'peers':
         (msg.list || []).forEach(maybeConnect);
         break;
@@ -865,6 +945,7 @@ function setupConn(conn, outgoing) {
   });
 
   conn.on('close', () => {
+    if (pending.has(conn.peer) && pending.get(conn.peer).conn === conn) pending.delete(conn.peer);
     const p = peers.get(conn.peer);
     if (p && p.conn === conn) removePeer(conn.peer, 'closed');
   });
@@ -882,6 +963,13 @@ function removePeer(id, reason = 'closed') {
   [p.voiceSrc, p.voiceGain].forEach(n => { try { n && n.disconnect(); } catch {} });
   removeTile(id);
   peers.delete(id);
+  if (reason === 'bye') { roster.delete(id); pairRetry.delete(id); relinking.delete(id); }
+  else if (wasConnected && (reason === 'closed' || reason === 'timeout') && !leaving && connectedCount() > 0) {
+    // Caiu só a ligação com esta pessoa: a malha tenta religar o par (meshLoop)
+    pairRetry.delete(id);
+    relinking.set(id, p.name);
+    showToast(`📶 Conexão com ${displayName(p)} caiu. Religando...`, 'warn');
+  }
   renderPeers();
   updateAllTileNames();
   if (peer) updateStatus();
@@ -1554,6 +1642,7 @@ async function init() {
   setInterval(voiceLoop, VOICE_INTERVAL_MS);
   netLoop();
   heartbeatLoop();
+  meshLoop();
 
   if (window.native.platform !== 'win32') {
     $('shareAudioChk').parentElement.title = 'Áudio do sistema só é capturado no Windows';

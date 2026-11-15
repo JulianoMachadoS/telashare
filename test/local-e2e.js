@@ -31,7 +31,8 @@
  * Usam o servidor público real do PeerJS (precisa de internet) e um microfone
  * falso do Chromium que emite um bipe.
  *
- * Rodar:  npm test        (leva ~4 minutos)
+ * Rodar:  npm test                (todos, leva ~5 minutos)
+ *         npm test -- 4 27 28     (só os módulos indicados, pelo número do teste)
  */
 const { app, BrowserWindow, session, ipcMain } = require('electron');
 // handlers que o main.js real registra
@@ -82,12 +83,15 @@ const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? '✅ PASSOU ' : '❌ FALHOU ') + name + (extra ? ' — ' + extra : '')); };
 const destroy = ws => ws.forEach(w => w.destroy());
 const rid = () => 'suite' + Math.floor(Math.random() * 1e9);
+// Filtro de módulos: "npm test -- 4 27" roda só os testes 4 e 27 (sem números = todos)
+const ONLY = process.argv.slice(2).join(',').split(/[,\s]+/).filter(a => /^\d+$/.test(a));
+const want = (...ids) => !ONLY.length || ids.some(id => ONLY.includes(String(id)));
 
 app.on('window-all-closed', () => {});
 app.whenReady().then(async () => {
-  console.log('TelaShare: testes LOCAIS (várias janelas no mesmo computador)\n');
+  console.log('TelaShare: testes LOCAIS (várias janelas no mesmo computador)' + (ONLY.length ? ` — só os módulos ${ONLY.join(', ')}` : '') + '\n');
   // 1. Caso normal (3 rodadas)
-  for (let i = 1; i <= 3; i++) {
+  if (want(1)) for (let i = 1; i <= 3; i++) {
     const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     const ok = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 20000);
@@ -95,25 +99,25 @@ app.whenReady().then(async () => {
     destroy([A, B]);
   }
   // 2. Amigo entra antes do anfitrião criar
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(2)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await join(B, room, 'Amigo'); await wait(5000); await host(A, room);
     const ok = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 30000);
     check('2. Entrar antes da sala existir', ok, JSON.stringify(await alerts(B)));
     destroy([A, B]); }
   // 3. Sala inexistente
-  { const C = mk(); await ready([C]);
+  if (want(3)) { const C = mk(); await ready([C]);
     await join(C, rid(), 'X');
     const ok = await until(async () => (await alerts(C)).some(a => a.startsWith('Sala não encontrada')), 60000);
     check('3. Código errado mostra "Sala não encontrada"', ok);
     destroy([C]); }
   // 4. Três pessoas (malha completa)
-  { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+  if (want(4)) { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
     await host(A, room); await wait(2500); await join(B, room, 'B'); await wait(1000); await join(C, room, 'C');
     const ok = await until(async () => (await count(A)) === 2 && (await count(B)) === 2 && (await count(C)) === 2, 30000);
     check('4. Três pessoas, todos conectados a todos', ok, `A=${await count(A)} B=${await count(B)} C=${await count(C)}`);
     destroy([A, B, C]); }
   // 5. Sair da sala
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(5)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     await js(B, 'leaveBtn.click(); 1');
@@ -122,7 +126,7 @@ app.whenReady().then(async () => {
     destroy([A, B]); }
 
   // 6. Áudio chega e o volume acima de 100% aumenta de verdade
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(6, 7, 8, 9)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     await wait(2000);
@@ -202,7 +206,7 @@ app.whenReady().then(async () => {
     A.destroy(); }
 
   // 10. Amigo compartilhando a tela fecha o app: tela e nome somem
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(10)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     await js(B, `(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180;
@@ -216,7 +220,7 @@ app.whenReady().then(async () => {
     check('10b. Amigo fecha o app: tela e nome somem', gone, `${((Date.now() - t0) / 1000).toFixed(1)}s, tiles=${await js(A, 'document.querySelectorAll(".tile").length')} peers=${await js(A, 'peers.size')}`);
     A.destroy(); }
   // 11. Amigo clica em "Sair da sala": some na hora
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(11)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     const t0 = Date.now();
@@ -225,7 +229,7 @@ app.whenReady().then(async () => {
     check('11. "Sair da sala" remove rápido', gone && Date.now() - t0 < 4000, `${((Date.now() - t0) / 1000).toFixed(1)}s`);
     destroy([A, B]); }
   // 12. Ninguém é removido por engano em 20s de conexão parada
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(12)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     await wait(20000);
@@ -233,7 +237,7 @@ app.whenReady().then(async () => {
     destroy([A, B]); }
 
   // 13. Indicador de mudo
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(13, 14, 15)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000);
     await wait(1000);
@@ -295,7 +299,7 @@ app.whenReady().then(async () => {
     check('15. Qualidade adaptativa aplica e restaura resolução/bitrate', enc[0] === '2/1350000' && enc[1] === '1/4500000', JSON.stringify(enc));
     destroy([A, B]); }
   // 16. Convite: copiar e entrar pelo link
-  { const room = rid(), A = mk(), C = mk(); await ready([A, C]);
+  if (want(16)) { const room = rid(), A = mk(), C = mk(); await ready([A, C]);
     await host(A, room);
     await until(async () => (await js(A, '!!(peer && peer.open && roomCode)')), 15000);
     await js(A, 'copyInvite()');
@@ -307,14 +311,14 @@ app.whenReady().then(async () => {
     destroy([A, C]); }
 
   // 17. Aviso legal visível (AGPLv3, Seção 5d)
-  { const A = mk(); await ready([A]);
+  if (want(17)) { const A = mk(); await ready([A]);
     const t = await js(A, 'document.getElementById("legal").innerText');
     check('17. Aviso legal visível com licença e link do projeto original',
       /AGPLv3/.test(t) && /github\.com\/JulianoMachadoS\/telashare/.test(t) && /Juliano Machado da Silva/.test(t), t.replace(/\n/g, ' | '));
     destroy([A]); }
 
   // 18. Botão ℹ️: janela Sobre com licenças e link do repositório
-  { const A = mk(); await ready([A]);
+  if (want(18)) { const A = mk(); await ready([A]);
     await js(A, 'aboutBtn.click(); 1'); await wait(500);
     const visible = await js(A, '!about.classList.contains("hidden")');
     const head = await js(A, 'about.innerText');
@@ -336,7 +340,7 @@ app.whenReady().then(async () => {
     destroy([A]); }
 
   // 19. Nomes repetidos: três pessoas chamadas "Juliano"
-  { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+  if (want(19)) { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
     await js(A, `nameInput.value='Juliano'; roomInput.value='${room}'; hostBtn.click(); 1`); await wait(2500);
     await join(B, room, 'Juliano'); await wait(1000); await join(C, room, 'Juliano');
     await until(async () => (await count(A)) === 2, 30000); await wait(1500);
@@ -351,7 +355,7 @@ app.whenReady().then(async () => {
     check('19c. Volume salvo por instalação, sem misturar pessoas de mesmo nome', keys.length === 1 && /^ts_pvol_dev_/.test(keys[0]) && vols.includes(2.5) && vols.includes(1), JSON.stringify({ keys, vols }));
     destroy([A, B, C]); }
   // 20. Sons de aviso
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(20)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000); await wait(1000);
     await js(B, 'muteBtn.click(); 1'); await wait(300);
@@ -365,7 +369,7 @@ app.whenReady().then(async () => {
     check('20d. Quem saiu de propósito não dispara reconexão', !(await js(A, 'rejoining')) && !(await js(B, 'rejoining')));
     destroy([A, B]); }
   // 21. Reconexão automática: a conexão do amigo cai de repente (sem "bye")
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(21)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(A)) === 1, 20000); await wait(1000);
     await js(B, 'rejoinCfg = { max: 5, delays: [1000, 2000, 3000, 4000, 5000] }; 1');
@@ -378,7 +382,7 @@ app.whenReady().then(async () => {
     check('21c. Avisos de "conexão perdida" e "reconectado" (som e mensagem)', sb.includes('warn') && sb.includes('ok') && tb.some(t => /Reconectado/.test(t)), JSON.stringify({ sb, tb }));
     destroy([A, B]); }
   // 22. Reconexão com limite: o anfitrião sumiu de vez
-  { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+  if (want(22)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     await until(async () => (await count(B)) === 1, 20000); await wait(1000);
     await js(B, 'rejoinCfg = { max: 2, delays: [500, 500] }; 1');
@@ -388,7 +392,7 @@ app.whenReady().then(async () => {
     check('22. Desiste após o limite de tentativas e volta para a tela inicial', gaveUp && out, JSON.stringify(await alerts(B)));
     destroy([B]); }
   // 23. Aviso de nova versão na janela Sobre
-  { updateReply = { tag: 'v9.9.9', url: 'https://example.invalid' };
+  if (want(23)) { updateReply = { tag: 'v9.9.9', url: 'https://example.invalid' };
     const A = mk(); await ready([A]); await wait(1000);
     const badge = await js(A, 'aboutBtn.classList.contains("has-update")');
     await js(A, 'aboutBtn.click(); 1'); await wait(300);
@@ -403,7 +407,7 @@ app.whenReady().then(async () => {
     check('23c. Sem acesso às versões: mensagem clara em vez de erro', /Não foi possível verificar/.test(await js(A, 'updateText.textContent')));
     destroy([A]); }
   // 24. Microfone desconectado
-  { const A = mk(); await ready([A]); await wait(500);
+  if (want(24)) { const A = mk(); await ready([A]); await wait(500);
     const r = await js(A, `(async () => {
       const old = micRaw.getAudioTracks()[0];
       old.dispatchEvent(new Event('ended'));
@@ -413,7 +417,7 @@ app.whenReady().then(async () => {
     check('24. Microfone desconectado: avisa e passa para o microfone padrão', r.novo && r.toasts.some(t => /Microfone desconectado/.test(t)) && r.toasts.some(t => /Usando agora/.test(t)), JSON.stringify(r));
     destroy([A]); }
   // 25. 🎲 código aleatório + 26. ocultar a minha prévia
-  { const A = mk(); await ready([A]);
+  if (want(25, 26)) { const A = mk(); await ready([A]);
     await js(A, 'diceBtn.click(); 1'); const c1 = await js(A, 'roomInput.value');
     await js(A, 'diceBtn.click(); 1'); const c2 = await js(A, 'roomInput.value');
     const ok = [c1, c2].every(c => /^[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{4}-[a-hj-km-np-z2-9]{2}$/.test(c));
@@ -426,6 +430,29 @@ app.whenReady().then(async () => {
     const shown = await js(A, '({ c: tileEl("__local__").classList.contains("collapsed"), src: tileEl("__local__").querySelector("video").srcObject === localPreview })');
     check('26. Ocultar a minha prévia (libera o vídeo) e mostrar de novo', hidden.c && hidden.src && !shown.c && shown.src, JSON.stringify({ hidden, shown }));
     destroy([A]); }
+  // 27. (#31) Só a ligação entre dois convidados cai: o par é religado sozinho
+  if (want(27)) { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+    await host(A, room); await wait(2500); await join(B, room, 'B'); await wait(1000); await join(C, room, 'C');
+    const full = () => until(async () => (await count(A)) === 2 && (await count(B)) === 2 && (await count(C)) === 2, 40000);
+    const mesh = await full();
+    const cId = await js(C, 'peer.id'), bId = await js(B, 'peer.id');
+    // derruba SÓ o par B↔C, do lado de B (como se a rede entre os dois piscasse)
+    await js(B, `(() => { const p = peers.get('${cId}'); [p.conn.peerConnection, p.micCall && p.micCall.peerConnection].forEach(pc => pc && pc.close()); return 1; })()`);
+    const dropped = await until(async () => !(await js(B, `!!(peers.get('${cId}') && peers.get('${cId}').conn && peers.get('${cId}').conn.open)`)), 15000);
+    const healed = await full();
+    const voice = await js(B, `!!(peers.get('${cId}') && peers.get('${cId}').voiceStream && peers.get('${cId}').voiceStream.getAudioTracks()[0].readyState === 'live')`)
+      && await js(C, `!!(peers.get('${bId}') && peers.get('${bId}').voiceStream && peers.get('${bId}').voiceStream.getAudioTracks()[0].readyState === 'live')`);
+    const noRejoin = !(await js(B, 'rejoining')) && !(await js(C, 'rejoining'));
+    const toasts = (await js(B, 'toastLog.slice()')).concat(await js(C, 'toastLog.slice()'));
+    check('27a. (#31) Ligação B↔C cai e é religada sozinha, com voz nos dois sentidos', mesh && dropped && healed && voice,
+      `antes=${mesh} caiu=${dropped} religou=${healed} voz=${voice} | A=${await count(A)} B=${await count(B)} C=${await count(C)}`);
+    check('27b. (#31) Religar um par não derruba a sala nem dispara a reconexão geral', noRejoin && (await count(A)) === 2);
+    check('27c. (#31) Avisos "caiu, religando" e "religado"', toasts.some(t => /caiu\. Religando/.test(t)) && toasts.some(t => /Religado com/.test(t)), JSON.stringify(toasts));
+    // quem sai de propósito não é religado: some do roster de todos
+    await js(C, 'leaveBtn.click(); 1');
+    const forgot = await until(async () => !(await js(A, `roster.has('${cId}')`)) && !(await js(B, `roster.has('${cId}') || pending.has('${cId}')`)), 20000);
+    check('27d. (#31) Quem saiu de propósito não é religado', forgot);
+    destroy([A, B, C]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
-  app.exit(results.every(Boolean) ? 0 : 1);
+  app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
