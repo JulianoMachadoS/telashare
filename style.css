@@ -23,7 +23,7 @@ h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #
 section { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #3f4147; }
 label { display: block; margin: 8px 0; font-size: 13px; }
 label.check { display: flex; align-items: center; gap: 6px; }
-input[type=text], input:not([type]), select {
+input[type=text], input[type=password], input:not([type]), select {
   width: 100%;
   margin-top: 4px;
   padding: 7px 8px;
@@ -91,3 +91,5 @@ button.muted { background: #da373c; }
 .source span { display: block; font-size: 12px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile:fullscreen { display: flex; flex-direction: column; border-radius: 0; }
 .tile:fullscreen video { flex: 1; aspect-ratio: auto; height: 0; }
+details { margin-top: 10px; font-size: 13px; }
+details summary { cursor: pointer; color: #949ba4; }

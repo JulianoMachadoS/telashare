@@ -1,6 +1,10 @@
 const { app, BrowserWindow, session, desktopCapturer, ipcMain } = require('electron');
 const path = require('path');
 
+// Mostra os IPs locais reais nas conexões WebRTC (em vez de nomes .local ocultos).
+// Necessário para conectar via VPN (Radmin/Tailscale/ZeroTier) e rede local.
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+
 let win;
 let chosenSourceId = null;
 let chosenWithAudio = true;

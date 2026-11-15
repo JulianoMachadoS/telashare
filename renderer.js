@@ -3,16 +3,24 @@
 
 const $ = id => document.getElementById(id);
 const PREFIX = 'telashare-v1-';
-const PEER_OPTS = {
-  debug: 1,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478' }
-    ]
+// Servidores STUN descobrem o IP público. Um TURN (opcional, configurado em "Avançado")
+// retransmite o tráfego quando a conexão direta é bloqueada por firewall/NAT.
+function peerOpts() {
+  const iceServers = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ];
+  const turnUrls = ($('turnUrl').value || '').split(/[\s,]+/).filter(Boolean);
+  if (turnUrls.length) {
+    iceServers.push({
+      urls: turnUrls,
+      username: $('turnUser').value.trim(),
+      credential: $('turnPass').value
+    });
   }
-};
+  return { debug: 1, config: { iceServers } };
+}
 const QUALITY = {
   '720_30':  { w: 1280, h: 720,  fps: 30, bitrate: 2500000 },
   '1080_30': { w: 1920, h: 1080, fps: 30, bitrate: 4500000 },
@@ -153,7 +161,8 @@ function sanitizeRoom(s) { return s.trim().toLowerCase().replace(/[^a-z0-9_-]/g,
 
 function makePeer(id) {
   return new Promise((resolve, reject) => {
-    const p = id ? new Peer(id, PEER_OPTS) : new Peer(PEER_OPTS);
+    const opts = peerOpts();
+    const p = id ? new Peer(id, opts) : new Peer(opts);
     const onErr = err => { p.destroy(); reject(err); };
     p.once('error', onErr);
     p.once('open', () => { p.off('error', onErr); resolve(p); });
@@ -200,15 +209,72 @@ async function joinRoom() {
   }
   isHost = false;
   enterRoom(f.room);
-  const conn = peer.connect(PREFIX + f.room, { reliable: true });
+  joinTarget = PREFIX + f.room;
+  joinAttempts = 0;
+  tryJoin();
+}
+
+// Tenta entrar na sala. Cada tentativa espera até 6s pela resposta do anfitrião;
+// sem resposta, tenta de novo (o anfitrião pode estar terminando de criar a sala).
+// Obs.: não dá para confiar só no erro "peer-unavailable" do servidor público,
+// porque depois do primeiro erro ele às vezes deixa as novas tentativas sem resposta.
+const JOIN_MAX_ATTEMPTS = 6;
+let joinRetryFn = null;
+
+function tryJoin() {
+  if (!peer || !joinTarget) return;
+  joinAttempts++;
+  const myAttempt = joinAttempts;
+  setStatus(joinAttempts > 1 ? `Procurando a sala... (tentativa ${joinAttempts} de ${JOIN_MAX_ATTEMPTS})` : 'Procurando a sala...');
+  const conn = peer.connect(joinTarget, { reliable: true });
   setupConn(conn, true);
-  setTimeout(() => {
-    if (peer && !conn.open && peers.size === 0) {
-      alert('Sala não encontrada. Confira o código ou peça para alguém clicar em "Criar sala".');
+
+  const started = Date.now();
+  let timer = null;
+  const retry = () => {
+    if (joinAttempts !== myAttempt || !joinTarget) return;
+    clearInterval(timer);
+    joinRetryFn = null;
+    try { conn.close(); } catch {}
+    if (joinAttempts >= JOIN_MAX_ATTEMPTS) {
+      joinTarget = null;
+      alert('Sala não encontrada.\n\nConfira se o código está igual nos dois PCs e se quem criou ' +
+            'a sala ainda está com ela aberta (botão "Criar sala").');
+      leaveRoom();
+    } else {
+      setTimeout(tryJoin, 1500);
+    }
+  };
+  joinRetryFn = retry;
+
+  timer = setInterval(() => {
+    if (!peer || joinTarget === null || joinAttempts !== myAttempt) { clearInterval(timer); return; }
+    if (conn.open) { clearInterval(timer); joinTarget = null; joinRetryFn = null; return; }
+    const pc = conn.peerConnection;
+    const ice = pc ? pc.iceConnectionState : 'new';
+    const elapsed = Date.now() - started;
+    if (ice === 'new') {
+      // anfitrião ainda não respondeu
+      if (elapsed > 6000) retry();
+      return;
+    }
+    // anfitrião respondeu: a sala existe, agora é a conexão direta
+    setStatus(`Sala encontrada. Conectando diretamente... (${ice})`);
+    if (ice === 'failed' || elapsed > 30000) {
+      clearInterval(timer);
+      joinTarget = null;
+      joinRetryFn = null;
+      alert('A sala existe, mas não foi possível conectar diretamente ao outro computador ' +
+            '(bloqueio de firewall ou NAT da rede).\n\n' +
+            'Soluções:\n' +
+            '• Instalem uma VPN gratuita (Radmin VPN, Tailscale ou ZeroTier) nos dois PCs e tentem de novo; ou\n' +
+            '• Configurem um servidor TURN em "Avançado" (veja o README).');
       leaveRoom();
     }
-  }, 12000);
+  }, 500);
 }
+let joinAttempts = 0;
+let joinTarget = null;
 
 function enterRoom(room) {
   roomCode = room;
@@ -223,7 +289,11 @@ function enterRoom(room) {
   peer.on('open', () => updateStatus());
   peer.on('error', err => {
     console.warn('peer error', err.type, err);
-    if (err.type === 'peer-unavailable') return; // tratado pelo timeout
+    if (err.type === 'peer-unavailable') {
+      // O servidor respondeu que não existe ninguém com esse ID: a sala realmente não existe
+      if (joinTarget && String(err.message).includes(joinTarget) && joinRetryFn) joinRetryFn();
+      return;
+    }
     if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
       setStatus('Problema de rede com o servidor de sinalização...');
     }
@@ -609,6 +679,10 @@ function renderPeers() {
 // =====================================================================
 async function init() {
   $('nameInput').value = store.get('name', '');
+  for (const k of ['turnUrl', 'turnUser', 'turnPass']) {
+    $(k).value = store.get(k, '');
+    $(k).onchange = () => store.set(k, $(k).value.trim());
+  }
   $('roomInput').value = store.get('room', '');
   $('micVol').value = store.get('micVol', 100);
   $('outVol').value = store.get('outVol', 100);

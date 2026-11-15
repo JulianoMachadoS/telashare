@@ -40,21 +40,36 @@ Várias pessoas podem compartilhar a tela ao mesmo tempo.
 
 O app guarda suas configurações para a próxima vez.
 
-## ⚙️ Como funciona
+## ⚙️ Como funciona a conexão
 
-Feito com **Electron** e **WebRTC** (biblioteca [PeerJS](https://peerjs.com)).
-O servidor público gratuito do PeerJS só ajuda os computadores a se encontrarem. A tela, o áudio
-e a voz vão **direto de um PC para o outro** (P2P) e não passam por nenhum servidor.
+Não existe servidor próprio nem túnel. Funciona em duas etapas:
+
+1. **Encontrar a sala (sinalização):** o app usa o servidor público e gratuito do
+   [PeerJS](https://peerjs.com) (`0.peerjs.com`). Quem clica em **Criar sala** se registra lá com o
+   código da sala, e quem clica em **Entrar** pede ao servidor para encontrar esse código. Só passam
+   por ali mensagens pequenas de "aperto de mão".
+2. **Conexão direta (P2P / WebRTC):** depois disso, tela, áudio e voz vão **direto de um PC para o
+   outro**, criptografados. Servidores STUN (Google/Cloudflare) só ajudam cada PC a descobrir o
+   próprio IP público para atravessar o roteador.
+
+Se a etapa 2 falhar por causa de firewall ou NAT restrito, o app avisa e sugere as soluções abaixo.
 
 ## ⚠️ Limitações e dicas
 
 - **Eco no áudio da tela:** "Incluir áudio do PC" captura *todo* o som do Windows, inclusive a voz
   dos colegas saindo no seu fone. Por isso eles podem se ouvir com atraso enquanto você compartilha.
   Se incomodar, abaixe o **Volume do áudio da tela enviado** ou desmarque o áudio do PC.
+- **"Sala não encontrada"**: o código está diferente nos dois PCs, ou quem criou a sala fechou o app.
+  O código ignora maiúsculas, espaços e acentos.
+- **"A sala existe, mas não foi possível conectar diretamente"**: veja o item abaixo.
 - **Não conecta?** Algumas redes muito restritas (redes corporativas, internet 4G/5G nos dois lados)
   bloqueiam a conexão direta. Nesse caso, instalem uma VPN gratuita como
   [Radmin VPN](https://www.radmin-vpn.com), [Tailscale](https://tailscale.com) ou
   [ZeroTier](https://www.zerotier.com) e usem o TelaShare normalmente com ela ligada.
+- **Servidor TURN (avançado):** um TURN retransmite o tráfego quando a conexão direta é impossível.
+  Dá para criar um gratuito em [Metered](https://www.metered.ca/stun-turn) ou
+  [Cloudflare Calls](https://developers.cloudflare.com/realtime/turn/) e colar a URL, o usuário e a
+  senha em **Conexão → Avançado**. Basta configurar em um dos PCs.
 - **"Já existe uma sala com esse código":** alguém já criou a sala. Clique em **Entrar**.
 - **Muita gente compartilhando:** cada pessoa envia o vídeo para todas as outras. Com 4 ou mais
   pessoas compartilhando ao mesmo tempo, usem **720p** para não pesar o upload.

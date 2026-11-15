@@ -25,6 +25,19 @@
         <button id="joinBtn">Entrar</button>
       </div>
       <p class="hint">Um cria a sala, os outros entram com o mesmo código.</p>
+      <details>
+        <summary>Avançado: servidor TURN (opcional)</summary>
+        <p class="hint">Use se a conexão direta falhar. Basta configurar em um dos PCs.</p>
+        <label>URL(s) TURN
+          <input id="turnUrl" placeholder="turn:servidor:3478, turns:servidor:443">
+        </label>
+        <label>Usuário
+          <input id="turnUser">
+        </label>
+        <label>Senha
+          <input id="turnPass" type="password">
+        </label>
+      </details>
     </section>
 
     <section id="roomBox" class="hidden">
