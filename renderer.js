@@ -808,12 +808,16 @@ function getPeer(id) {
 // =====================================================================
 const MESH_MS = 3000;
 const ROSTER_TTL_MS = 12000;          // ninguém confirmou a pessoa nesse tempo → saiu da sala
-const PAIR_CONNECT_TIMEOUT_MS = 15000; // tentativa de ligação que não abriu nesse tempo → falhou
-let pairCfg = { max: 6, delays: [1000, 2000, 4000, 8000, 15000, 30000] };
+let pairTimeoutMs = 15000;    // tentativa de ligação que não abriu nesse tempo → falhou
+let pairWarnMs = 20000;       // sem ligação direta com alguém da sala por esse tempo → avisa
+let pairCfg = { max: 6, delays: [1000, 2000, 4000, 8000, 15000, 30000], slow: 60000 };
 const roster = new Map();     // id -> último momento em que alguém confirmou que a pessoa está na sala
 const pairRetry = new Map();  // id -> { n, next }: tentativas de religar um par
 const pending = new Map();    // id -> { conn, at }: ligação de saída ainda não aberta
 const relinking = new Map();  // id -> nome: pares que caíram e estão sendo religados
+const rosterNames = new Map(); // id -> nome (para avisar sobre quem não conseguimos ligar)
+const lostSince = new Map();  // id -> desde quando a pessoa está na sala sem ligação direta comigo
+const unreachable = new Set(); // pessoas da sala com quem a ligação direta não fecha (já avisado)
 
 // A sala é o ID "telashare-v1-<código>" no servidor de sinalização. Quem tem esse ID é o
 // anfitrião e é por ele que pessoas novas entram. Se o anfitrião sai (ou cai), os convidados
@@ -848,6 +852,24 @@ function maybeConnect(id) {
 function clearMesh() {
   for (const { conn } of pending.values()) { try { conn.close(); } catch {} }
   roster.clear(); pairRetry.clear(); pending.clear(); relinking.clear();
+  rosterNames.clear(); lostSince.clear(); unreachable.clear();
+}
+
+function rosterName(id) {
+  const p = peers.get(id);
+  return (p && p.helloed && p.name) || rosterNames.get(id) || 'um participante';
+}
+
+// Liga/desliga o aviso de "sem conexão direta" para uma pessoa da sala
+function setUnreachable(id, on) {
+  if (on === unreachable.has(id)) return;
+  if (on) {
+    unreachable.add(id);
+    playSound('warn');
+    showToast(`⚠️ Sem conexão direta com ${rosterName(id)}: vocês não se veem nem se ouvem. ` +
+              'A rede de um dos dois está bloqueando. Tente um servidor TURN em "Avançado" ou uma VPN (veja o README).', 'warn', 12000);
+  } else unreachable.delete(id);
+  renderPeers();
 }
 
 function meshLoop() {
@@ -856,21 +878,30 @@ function meshLoop() {
   const now = Date.now();
   const open = [...peers.values()].filter(p => p.conn && p.conn.open).map(p => p.id);
   open.forEach(id => vouch(id, now));
-  broadcast({ type: 'roster', list: open });
+  const names = {};
+  open.forEach(id => { const p = peers.get(id); if (p.helloed) names[id] = p.name; });
+  broadcast({ type: 'roster', list: open, names });
   for (const [id, pc] of [...pending]) {
-    if (!pc.conn.open && now - pc.at > PAIR_CONNECT_TIMEOUT_MS) {
+    if (!pc.conn.open && now - pc.at > pairTimeoutMs) {
       pending.delete(id);
       try { pc.conn.close(); } catch {}
     }
   }
   for (const [id, seen] of [...roster]) {
-    if (isOpen(id)) { pairRetry.delete(id); continue; }
-    if (now - seen > ROSTER_TTL_MS) { roster.delete(id); pairRetry.delete(id); relinking.delete(id); continue; }
+    if (isOpen(id)) { pairRetry.delete(id); lostSince.delete(id); setUnreachable(id, false); continue; }
+    if (now - seen > ROSTER_TTL_MS) {
+      roster.delete(id); pairRetry.delete(id); relinking.delete(id); lostSince.delete(id); rosterNames.delete(id);
+      setUnreachable(id, false);
+      continue;
+    }
+    if (!lostSince.has(id)) lostSince.set(id, now);
+    if (now - lostSince.get(id) >= pairWarnMs) setUnreachable(id, true);
     if (peer.id > id || pending.has(id)) continue; // o outro lado é quem inicia
     const r = pairRetry.get(id) || { n: 0, next: 0 };
-    if (r.n >= pairCfg.max || now < r.next) continue;
+    if (now < r.next) continue;
     r.n++;
-    r.next = now + pairCfg.delays[Math.min(r.n - 1, pairCfg.delays.length - 1)];
+    // depois do limite, continua tentando devagar (a rede de alguém pode mudar)
+    r.next = now + (r.n > pairCfg.max ? pairCfg.slow : pairCfg.delays[Math.min(r.n - 1, pairCfg.delays.length - 1)]);
     pairRetry.set(id, r);
     dial(id);
   }
@@ -992,6 +1023,11 @@ function setupConn(conn, outgoing) {
         // quem o outro participante tem ligado agora: confirma que essas pessoas estão na sala
         vouch(p.id);
         (msg.list || []).slice(0, 64).forEach(id => { if (typeof id === 'string') vouch(id); });
+        if (msg.names && typeof msg.names === 'object') {
+          for (const [id, nm] of Object.entries(msg.names).slice(0, 64)) {
+            if (typeof nm === 'string' && id !== (peer && peer.id)) rosterNames.set(id, nm.slice(0, 24));
+          }
+        }
         break;
       case 'peers':
         (msg.list || []).forEach(maybeConnect);
@@ -1413,8 +1449,18 @@ function renderPeers() {
   const ul = $('peerList');
   ul.innerHTML = '';
   const list = [...peers.values()].filter(p => p.conn);
+  // pessoas da sala com quem a ligação direta não fecha: aparecem com aviso
+  for (const id of unreachable) {
+    if (isOpen(id)) continue;
+    const li = document.createElement('li');
+    li.className = 'missing';
+    li.dataset.id = id;
+    li.title = 'Esta pessoa está na sala, mas a ligação direta com ela não fecha. Veja "Avançado" (TURN) ou use uma VPN.';
+    li.textContent = `⚠️ ${rosterName(id)}: sem conexão direta (tentando de novo...)`;
+    ul.appendChild(li);
+  }
   if (!list.length) {
-    ul.innerHTML = '<li class="hint">Ninguém conectado</li>';
+    if (!ul.children.length) ul.innerHTML = '<li class="hint">Ninguém conectado</li>';
     updateBadge();
     return;
   }

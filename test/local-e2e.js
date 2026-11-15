@@ -73,7 +73,15 @@ function mk() {
 }
 const js = (w, c) => w.webContents.executeJavaScript(c);
 const wait = ms => new Promise(r => setTimeout(r, ms));
-const ready = async ws => { await wait(2500); for (const w of ws) await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1'); };
+// Espera o app terminar de iniciar (botões ligados). Na primeira janela, que abre "a frio" no CI,
+// a inicialização pode passar de 2,5 s, e um clique antes disso se perde.
+const ready = async ws => {
+  await wait(2500);
+  for (const w of ws) {
+    await until(async () => { try { return await js(w, "!!(document.getElementById('hostBtn').onclick && typeof audioCtx !== 'undefined' && audioCtx)"); } catch { return false; } }, 30000);
+    await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1');
+  }
+};
 const host = (w, room) => js(w, `nameInput.value='Host'; roomInput.value='${room}'; hostBtn.click(); 1`);
 const join = (w, room, nm) => js(w, `nameInput.value='${nm}'; roomInput.value='${room}'; joinBtn.click(); 1`);
 const count = w => js(w, `[...peers.values()].filter(p => p.conn && p.conn.open && p.audioEl && p.audioEl.srcObject).length`);
@@ -82,6 +90,10 @@ async function until(fn, ms) { const t = Date.now(); while (Date.now() - t < ms)
 const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? '✅ PASSOU ' : '❌ FALHOU ') + name + (extra ? ' — ' + extra : '')); };
 const destroy = ws => ws.forEach(w => w.destroy());
+// Em caso de falha, mostra o estado de cada janela (ajuda a entender falhas que só acontecem no CI)
+const dump = async ws => { for (const w of ws) { try { console.log('  ESTADO', JSON.stringify(await js(w, `({ id: peer && peer.id, host: isHost, open: !!(peer && peer.open), status: status.textContent,
+  peers: [...peers.values()].map(p => ({ n: p.name, conn: !!(p.conn && p.conn.open), mic: !!p.micCall, audio: !!(p.audioEl && p.audioEl.srcObject), pc: p.conn && p.conn.peerConnection && p.conn.peerConnection.connectionState })),
+  roster: typeof roster !== 'undefined' ? [...roster.keys()] : null, pending: typeof pending !== 'undefined' ? [...pending.keys()] : null, toasts: toastLog, alerts: __alerts })`))); } catch (e) { console.log('  ESTADO erro', e.message); } } };
 const rid = () => 'suite' + Math.floor(Math.random() * 1e9);
 // Filtro de módulos: "npm test -- 4 27" roda só os testes 4 e 27 (sem números = todos)
 const ONLY = process.argv.slice(2).join(',').split(/[,\s]+/).filter(a => /^\d+$/.test(a));
@@ -96,6 +108,7 @@ app.whenReady().then(async () => {
     await host(A, room); await wait(2500); await join(B, room, 'Amigo');
     const ok = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 20000);
     check(`1.${i} Criar sala + entrar (voz conectada nos dois lados)`, ok);
+    if (!ok) await dump([A, B]);
     destroy([A, B]);
   }
   // 2. Amigo entra antes do anfitrião criar
@@ -479,6 +492,42 @@ app.whenReady().then(async () => {
     check('28c. (#32) Antigo anfitrião volta com "Criar sala": entra na sala existente e todos se veem', four && !(await js(A, 'isHost')) && !(await alerts(A)).length,
       `A=${await count(A)} B=${await count(B)} C=${await count(C)} D=${await count(D)} alertas=${JSON.stringify(await alerts(A))}`);
     destroy([A, B, C, D]); }
+  // 29. (#30) A ligação direta entre dois convidados falha (simula NAT/firewall bloqueando)
+  //     Bloqueio simulado: as ligações entre B e C vão para um ID que não existe e nunca abrem.
+  if (want(29)) {
+    const block = (w, n) => js(w, `(() => { window.__block = ${n}; if (!window.__rc) { window.__rc = Peer.prototype.connect;
+      Peer.prototype.connect = function (id, o) {
+        if (!String(id).startsWith('telashare-') && window.__block > 0) { window.__block--; return window.__rc.call(this, 'telashare-bloqueado-' + Math.random().toString(36).slice(2), o); }
+        return window.__rc.call(this, id, o); }; } return 1; })()`);
+    const fast = (w, extra) => js(w, `pairTimeoutMs = 2500; pairCfg = { max: 2, delays: [300, 300], slow: 2000 }; ${extra || ''} 1`);
+    const all = (ws, n, ms) => until(async () => { for (const w of ws) if ((await count(w)) !== n) return false; return true; }, ms);
+    // a) as 3 primeiras tentativas falham: o app tenta de novo e conecta
+    { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+      for (const w of [B, C]) { await block(w, 3); await fast(w); }
+      await host(A, room); await wait(2500); await join(B, room, 'B'); await wait(1000); await join(C, room, 'C');
+      const ok = await all([A, B, C], 2, 60000);
+      check('29a. (#30) Ligação entre convidados falha nas primeiras tentativas e o app tenta de novo até conectar', ok,
+        `A=${await count(A)} B=${await count(B)} C=${await count(C)}`);
+      destroy([A, B, C]); }
+    // b) bloqueada de vez: os dois são avisados e veem a pessoa na lista com aviso
+    { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+      for (const w of [B, C]) { await block(w, 1e9); await fast(w, 'pairWarnMs = 5000;'); }
+      await host(A, room); await wait(2500); await join(B, room, 'Bia'); await wait(1000); await join(C, room, 'Caio');
+      const warned = await until(async () =>
+        (await js(B, 'toastLog.some(t => /Sem conexão direta com Caio/.test(t)) && !!document.querySelector("#peerList li.missing")')) &&
+        (await js(C, 'toastLog.some(t => /Sem conexão direta com Bia/.test(t)) && !!document.querySelector("#peerList li.missing")')), 40000);
+      if (!warned) console.log("  DEBUG", JSON.stringify(await Promise.all([A, B, C].map(w => js(w, `({ id: peer && peer.id, host: isHost, peers: [...peers.values()].map(p => p.name + ":" + !!(p.conn && p.conn.open)), roster: [...roster.keys()], toasts: toastLog, alerts: __alerts, status: status.textContent })`)))));
+      const item = await js(B, '(document.querySelector("#peerList li.missing") || {}).textContent || ""');
+      check('29b. (#30) Sem ligação direta: os dois são avisados e a pessoa aparece na lista com ⚠️', warned && /Caio/.test(item) && (await count(A)) === 2,
+        `item="${item}" A=${await count(A)}`);
+      // c) a rede "libera": a tentativa lenta conecta e o aviso some
+      for (const w of [B, C]) await js(w, 'window.__block = 0; 1');
+      const healed = await all([A, B, C], 2, 40000);
+      const cleared = healed && await until(async () => !(await js(B, '!!document.querySelector("#peerList li.missing")')) && !(await js(C, '!!document.querySelector("#peerList li.missing")')), 10000);
+      check('29c. (#30) Depois do limite, continua tentando devagar: quando a rede libera, conecta e o aviso some', healed && cleared,
+        `B=${await count(B)} C=${await count(C)}`);
+      destroy([A, B, C]); }
+  }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
