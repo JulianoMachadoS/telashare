@@ -509,8 +509,12 @@ async function hostRoom() {
     peer = await makePeer(PREFIX + f.room);
   } catch (err) {
     lockForm(false);
-    if (err.type === 'unavailable-id') alert('Já existe uma sala aberta com esse código. Clique em "Entrar".');
-    else alert('Erro ao criar sala: ' + (err.message || err.type));
+    if (err.type === 'unavailable-id') {
+      // A sala continua aberta (outra pessoa assumiu quando você saiu, ou alguém já criou):
+      // entra nela em vez de dar erro.
+      showToast(`A sala "${f.room}" já está aberta. Entrando nela...`, 'info');
+      joinRoom();
+    } else alert('Erro ao criar sala: ' + (err.message || err.type));
     return;
   }
   isHost = true;
@@ -687,6 +691,8 @@ function leaveRoom() {
   sayGoodbye();
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
   clearMesh();
+  hostLostAt = hostNextDial = claimNext = 0;
+  everConnected = false;
   if (peer) { peer.destroy(); peer = null; }
   isHost = false;
   $('connectBox').classList.remove('hidden');
@@ -809,6 +815,19 @@ const pairRetry = new Map();  // id -> { n, next }: tentativas de religar um par
 const pending = new Map();    // id -> { conn, at }: ligação de saída ainda não aberta
 const relinking = new Map();  // id -> nome: pares que caíram e estão sendo religados
 
+// A sala é o ID "telashare-v1-<código>" no servidor de sinalização. Quem tem esse ID é o
+// anfitrião e é por ele que pessoas novas entram. Se o anfitrião sai (ou cai), os convidados
+// continuam ligados entre si e:
+//  - ficam procurando a sala a cada HOST_RETRY_MS (quando o anfitrião volta, todos se religam);
+//  - depois de HOST_CLAIM_AFTER_MS sem anfitrião, quem tem o menor ID assume a sala (vira o
+//    novo anfitrião), para que pessoas novas ou quem saiu consigam entrar de novo.
+// O servidor garante que só uma pessoa consegue o ID da sala por vez.
+const HOST_RETRY_MS = 4000;
+const HOST_CLAIM_AFTER_MS = 6000;
+let hostLostAt = 0, hostNextDial = 0, claimNext = 0, claiming = false;
+let everConnected = false; // só procura/assume a sala depois de ter entrado nela de fato
+const roomPeerId = () => PREFIX + roomCode;
+
 function vouch(id, at = Date.now()) { if (peer && id && id !== peer.id) roster.set(id, at); }
 function isOpen(id) { const p = peers.get(id); return !!(p && p.conn && p.conn.open); }
 
@@ -855,6 +874,44 @@ function meshLoop() {
     pairRetry.set(id, r);
     dial(id);
   }
+  if (!isHost && !claiming && everConnected) watchHost(now, open);
+}
+
+function watchHost(now, open) {
+  const hid = roomPeerId();
+  if (isOpen(hid)) { hostLostAt = 0; return; }
+  if (!hostLostAt) hostLostAt = now;
+  if (!pending.has(hid) && now >= hostNextDial && !(joinTarget === hid)) {
+    hostNextDial = now + HOST_RETRY_MS;
+    dial(hid); // o anfitrião voltou? (o ID da sala é sempre maior, então o convidado inicia)
+  }
+  // ninguém com o ID da sala há um tempo: o menor ID entre quem está ligado assume
+  if (open.length && now - hostLostAt >= HOST_CLAIM_AFTER_MS && now >= claimNext &&
+      open.every(id => peer.id < id || id === hid)) {
+    claimNext = now + HOST_RETRY_MS * 2;
+    claimRoom();
+  }
+}
+
+async function claimRoom() {
+  claiming = true;
+  let np;
+  try { np = await makePeer(roomPeerId()); }
+  catch { claiming = false; return; } // a sala já tem dono (o anfitrião voltou ou outro assumiu)
+  if (leaving || !peer || rejoining) { try { np.destroy(); } catch {} claiming = false; return; }
+  // Troca de identidade: avisa os outros, que vão se religar ao ID da sala (watchHost)
+  broadcast({ type: 'migrate' });
+  const old = peer;
+  peer = np;
+  isHost = true;
+  hostLostAt = 0;
+  for (const id of [...peers.keys()]) removePeer(id, 'leave');
+  for (const { conn } of pending.values()) { try { conn.close(); } catch {} }
+  pending.clear(); pairRetry.clear(); relinking.clear();
+  enterRoom(roomCode);
+  showToast('👑 O anfitrião saiu. Você agora mantém a sala aberta.', 'info');
+  setTimeout(() => { try { old.destroy(); } catch {} }, 500);
+  claiming = false;
 }
 
 function setupConn(conn, outgoing) {
@@ -874,6 +931,7 @@ function setupConn(conn, outgoing) {
     }
     p.conn = conn;
     p.lastSeen = Date.now();
+    everConnected = true;
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
     if (rejoining) rejoinSucceeded();
 
@@ -905,6 +963,11 @@ function setupConn(conn, outgoing) {
         break;
       case 'bye':
         removePeer(p.id, 'bye');
+        break;
+      case 'migrate':
+        // a pessoa assumiu a sala com o ID da sala: religa nela logo
+        removePeer(p.id, 'migrate');
+        hostNextDial = 0;
         break;
       case 'hello': {
         const first = !p.helloed;
@@ -963,7 +1026,7 @@ function removePeer(id, reason = 'closed') {
   [p.voiceSrc, p.voiceGain].forEach(n => { try { n && n.disconnect(); } catch {} });
   removeTile(id);
   peers.delete(id);
-  if (reason === 'bye') { roster.delete(id); pairRetry.delete(id); relinking.delete(id); }
+  if (reason === 'bye' || reason === 'migrate') { roster.delete(id); pairRetry.delete(id); relinking.delete(id); }
   else if (wasConnected && (reason === 'closed' || reason === 'timeout') && !leaving && connectedCount() > 0) {
     // Caiu só a ligação com esta pessoa: a malha tenta religar o par (meshLoop)
     pairRetry.delete(id);
@@ -973,7 +1036,7 @@ function removePeer(id, reason = 'closed') {
   renderPeers();
   updateAllTileNames();
   if (peer) updateStatus();
-  if (wasConnected && reason !== 'leave' && !leaving) playSound('leave');
+  if (wasConnected && reason !== 'leave' && reason !== 'migrate' && !leaving) playSound('leave');
   // Convidado perdeu a conexão com todos sem ninguém ter saído de propósito → reconecta sozinho.
   // O anfitrião NÃO recria a sala aqui: ele não tem como saber se quem caiu foi ele ou o
   // convidado, e a sala dele continua aberta para os outros voltarem.

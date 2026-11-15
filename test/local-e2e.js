@@ -453,6 +453,32 @@ app.whenReady().then(async () => {
     const forgot = await until(async () => !(await js(A, `roster.has('${cId}')`)) && !(await js(B, `roster.has('${cId}') || pending.has('${cId}')`)), 20000);
     check('27d. (#31) Quem saiu de propósito não é religado', forgot);
     destroy([A, B, C]); }
+  // 28. (#32) O anfitrião sai e volta: a sala não se divide
+  if (want(28)) { const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+    await host(A, room); await wait(2500); await join(B, room, 'B'); await wait(1000); await join(C, room, 'C');
+    const all = (ws, n) => until(async () => { for (const w of ws) if ((await count(w)) !== n) return false; return true; }, 45000);
+    const mesh = await all([A, B, C], 2);
+    // a) sai e cria a sala de novo logo em seguida (o caso relatado)
+    await js(A, 'leaveBtn.click(); 1'); await wait(1500);
+    await host(A, room);
+    const back = await all([A, B, C], 2);
+    check('28a. (#32) Anfitrião sai e cria a sala de novo: os três voltam a se ver e ouvir', mesh && back,
+      `antes=${mesh} | A=${await count(A)} B=${await count(B)} C=${await count(C)} hostA=${await js(A, 'isHost')}`);
+    // b) o anfitrião sai de vez: um convidado assume a sala e uma pessoa nova consegue entrar
+    await js(A, 'leaveBtn.click(); 1');
+    const claimed = await until(async () => ((await js(B, 'isHost')) ? 1 : 0) + ((await js(C, 'isHost')) ? 1 : 0) === 1, 40000);
+    const D = mk(); await ready([D]);
+    await join(D, room, 'D');
+    const withD = await all([B, C, D], 2);
+    const tb = (await js(B, 'toastLog.slice()')).concat(await js(C, 'toastLog.slice()'));
+    check('28b. (#32) Anfitrião sai de vez: um convidado assume a sala e quem chega encontra todos', claimed && withD && tb.some(t => /agora mantém a sala/.test(t)),
+      `assumiu=${claimed} | B=${await count(B)} C=${await count(C)} D=${await count(D)}`);
+    // c) o antigo anfitrião clica em "Criar sala" de novo: a sala já existe, então ele entra nela
+    await host(A, room);
+    const four = await all([A, B, C, D], 3);
+    check('28c. (#32) Antigo anfitrião volta com "Criar sala": entra na sala existente e todos se veem', four && !(await js(A, 'isHost')) && !(await alerts(A)).length,
+      `A=${await count(A)} B=${await count(B)} C=${await count(C)} D=${await count(D)} alertas=${JSON.stringify(await alerts(A))}`);
+    destroy([A, B, C, D]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
