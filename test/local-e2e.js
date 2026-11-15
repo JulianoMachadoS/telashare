@@ -528,6 +528,29 @@ app.whenReady().then(async () => {
         `B=${await count(B)} C=${await count(C)}`);
       destroy([A, B, C]); }
   }
+  // 30. (#33) A chamada da TELA falha (a voz continua): a tela tem que chegar mesmo assim
+  if (want(30)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000);
+    await js(B, 'screenCfg.delays = [500, 500, 500, 500, 500]; 1');
+    await js(A, 'screenCfg.waitMs = 4000; 1');
+    // A recusa as 2 primeiras chamadas de tela (como se a conexão do vídeo falhasse)
+    await js(A, `(() => { window.__drop = 2; const orig = handleIncomingCall;
+      handleIncomingCall = call => { if (call.metadata && call.metadata.kind === 'screen' && window.__drop > 0) { window.__drop--; setTimeout(() => call.close(), 300); return; } orig(call); };
+      return 1; })()`);
+    const tiles = () => js(A, 'document.querySelectorAll(".tile").length');
+    await js(B, `(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+      const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,320,180); }, 100);
+      screenStream = c.captureStream(10); for (const p of peers.values()) callScreen(p.id); return 1; })()`);
+    const shown = await until(async () => (await tiles()) === 1, 30000);
+    check('30a. (#33) Chamada de tela falha nas primeiras vezes e é refeita até a tela aparecer', shown,
+      `tiles=${await tiles()} recusadas=${2 - (await js(A, 'window.__drop'))}`);
+    // a conexão do vídeo cai depois de aparecer (do lado de quem assiste): quem assiste pede de novo
+    await js(A, `(() => { const p = [...peers.values()][0]; p.screenIn.peerConnection.close(); return 1; })()`);
+    const back = await until(async () => (await js(A, `(() => { const p = [...peers.values()][0]; return !!(tileEl(p.id) && p.screenIn && p.screenIn.peerConnection.connectionState === 'connected'); })()`)), 40000);
+    check('30b. (#33) Vídeo da tela cai depois de conectado: volta sozinho, com a voz intacta', back && (await count(A)) === 1,
+      `tiles=${await tiles()} voz=${await count(A)}`);
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

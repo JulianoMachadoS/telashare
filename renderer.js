@@ -905,6 +905,7 @@ function meshLoop() {
     pairRetry.set(id, r);
     dial(id);
   }
+  for (const p of peers.values()) checkScreenIn(p, now);
   if (!isHost && !claiming && everConnected) watchHost(now, open);
 }
 
@@ -1035,7 +1036,15 @@ function setupConn(conn, outgoing) {
       case 'joined':
         maybeConnect(msg.id);
         break;
+      case 'screen-start':
+        if (!p.sharing) { p.sharing = true; p.screenWaitSince = Date.now(); p.screenReqs = 0; p.screenInWarned = false; }
+        break;
+      case 'screen-request':
+        // quem assiste não recebeu a tela: refaz a chamada (no máximo uma a cada 3 s)
+        if (screenStream && Date.now() - (p.screenCalledAt || 0) > 3000) { p.screenTries = 0; callScreen(p.id); }
+        break;
       case 'screen-stop':
+        p.sharing = false;
         if (p.screenIn) { p.screenIn.close(); p.screenIn = null; }
         if (tileEl(p.id)) playSound('share-off');
         removeTile(p.id);
@@ -1098,8 +1107,11 @@ function handleIncomingCall(call) {
     const p = getPeer(call.peer);
     if (p.screenIn && p.screenIn !== call) p.screenIn.close();
     p.screenIn = call;
+    p.sharing = true;
     call.on('stream', s => {
       if (!tileEl(p.id)) playSound('share-on');
+      if (p.screenInWarned) { p.screenInWarned = false; showToast(`✅ A tela de ${displayName(p)} chegou`, 'ok'); }
+      p.screenReqs = 0;
       showTile(p.id, s, false);
     });
     call.on('close', () => { if (p.screenIn === call) { p.screenIn = null; removeTile(p.id); } });
@@ -1162,19 +1174,49 @@ function applyEncoding(pc, level) {
   });
 }
 
+// A chamada da tela é uma conexão separada da voz. Se ela não conecta ou cai, quem compartilha
+// refaz a chamada (com limite) e quem assiste pede de novo ('screen-request') se a tela não chega.
+let screenCfg = { connectMs: 15000, max: 5, delays: [1000, 2000, 4000, 8000, 15000], waitMs: 12000, maxRequests: 4 };
+
+function retryScreen(p, call) {
+  if (p.screenOut !== call) return; // já existe uma chamada mais nova
+  try { call.close(); } catch {}
+  p.screenOut = null;
+  if (!screenStream || !isOpen(p.id)) return;
+  p.screenTries = (p.screenTries || 0) + 1;
+  if (p.screenTries > screenCfg.max) {
+    if (!p.screenWarned) {
+      p.screenWarned = true;
+      showToast(`⚠️ Sua tela não está chegando para ${displayName(p)}. A rede de um dos dois está bloqueando o vídeo.`, 'warn', 10000);
+    }
+    return;
+  }
+  const delay = screenCfg.delays[Math.min(p.screenTries - 1, screenCfg.delays.length - 1)];
+  setTimeout(() => { if (screenStream && isOpen(p.id) && !p.screenOut) callScreen(p.id); }, delay);
+}
+
 function callScreen(id) {
   const p = getPeer(id);
-  if (p.screenOut) { try { p.screenOut.close(); } catch {} }
+  if (p.screenOut) { const old = p.screenOut; p.screenOut = null; try { old.close(); } catch {} }
+  if (p.conn && p.conn.open) { try { p.conn.send({ type: 'screen-start' }); } catch {} }
   const call = peer.call(id, screenStream, { metadata: { kind: 'screen' } });
   p.screenOut = call;
+  p.screenCalledAt = Date.now();
   p.sendLevel = 0;
+  call.on('error', () => retryScreen(p, call));
+  call.on('close', () => { if (p.screenOut === call && screenStream) retryScreen(p, call); });
   const pc = call.peerConnection;
   if (!pc) return;
+  const t0 = Date.now();
   let started = false, bad = 0, good = 0, prevLost = 0, prevSent = 0;
   const loop = async () => {
     if (p.screenOut !== call || pc.connectionState === 'closed') return;
+    if (pc.connectionState === 'failed' || (!started && Date.now() - t0 > screenCfg.connectMs)) {
+      retryScreen(p, call);
+      return;
+    }
     if (pc.connectionState === 'connected') {
-      if (!started) { started = true; applyEncoding(pc, p.sendLevel); }
+      if (!started) { started = true; p.screenTries = 0; p.screenWarned = false; applyEncoding(pc, p.sendLevel); }
       try {
         const stats = await pc.getStats();
         let lost = 0, sent = 0, avail = null;
@@ -1199,9 +1241,32 @@ function callScreen(id) {
         }
       } catch (e) { console.warn('adapt', e); }
     }
-    setTimeout(loop, 2000);
+    setTimeout(loop, started ? 2000 : 500);
   };
   loop();
+}
+
+// Quem assiste: a pessoa avisou que está compartilhando, mas a tela não chegou (ou caiu)
+function checkScreenIn(p, now) {
+  if (!p.sharing || !p.conn || !p.conn.open) return;
+  const pc = p.screenIn && p.screenIn.peerConnection;
+  if (pc && pc.connectionState === 'failed') {
+    try { p.screenIn.close(); } catch {}
+    p.screenIn = null;
+    removeTile(p.id);
+  }
+  if (tileEl(p.id) && p.screenIn) { p.screenReqs = 0; p.screenWaitSince = now; return; }
+  if (now - (p.screenWaitSince || now) < screenCfg.waitMs) return;
+  p.screenWaitSince = now;
+  p.screenReqs = (p.screenReqs || 0) + 1;
+  if (p.screenReqs > screenCfg.maxRequests) {
+    if (!p.screenInWarned) {
+      p.screenInWarned = true;
+      showToast(`⚠️ A tela de ${displayName(p)} não está chegando. A rede de um dos dois está bloqueando o vídeo.`, 'warn', 10000);
+    }
+    return;
+  }
+  try { p.conn.send({ type: 'screen-request' }); } catch {}
 }
 
 // Mostra na sua prévia se a qualidade foi reduzida para alguém
@@ -1296,7 +1361,7 @@ function stopShare() {
   if (!leaving) playSound('share-off');
   localPreview = null;
   for (const p of peers.values()) {
-    if (p.screenOut) { try { p.screenOut.close(); } catch {} p.screenOut = null; }
+    if (p.screenOut) { const c = p.screenOut; p.screenOut = null; try { c.close(); } catch {} }
     if (p.conn && p.conn.open) p.conn.send({ type: 'screen-stop' });
   }
   if (screenRaw) screenRaw.getTracks().forEach(t => t.stop());

@@ -140,6 +140,10 @@ várias vezes e, depois de ~20 s, avisa: "⚠️ Sem conexão direta com Fulano"
 **Participantes** com ⚠️. O app continua tentando a cada 1 minuto, e se a rede liberar, conecta sozinho.
 Para resolver de vez, use um servidor **TURN** em "Avançado" ou uma **VPN** (veja abaixo).
 
+**A tela vai por uma conexão separada da voz.** Se ela não conecta ou cai, quem compartilha refaz a
+chamada sozinho, e quem assiste pede de novo se a tela não chegar. Se mesmo assim não chegar, os dois
+recebem o aviso "⚠️ A tela de Fulano não está chegando".
+
 ## ⚙️ Como funciona a conexão
 
 Não existe servidor próprio nem túnel. Funciona em duas etapas:
@@ -280,6 +284,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 27 | **(#31)** Três pessoas: só a ligação entre dois convidados cai e é religada sozinha, com voz nos dois sentidos; quem sai de propósito não é religado |
 | 28 | **(#32)** O anfitrião sai e cria a sala de novo (todos se religam); sai de vez (um convidado assume e uma pessoa nova encontra todos); volta com "Criar sala" (entra na sala existente) |
 | 29 | **(#30)** Ligação entre dois convidados bloqueada (simulado): tenta de novo até conectar; bloqueada de vez avisa os dois e mostra ⚠️ na lista; quando libera, conecta e o aviso some |
+| 30 | **(#33)** A chamada da tela falha nas primeiras vezes e é refeita até aparecer; o vídeo cai depois de conectado e volta sozinho, sem afetar a voz |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
