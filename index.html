@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https: wss:;">
+  <title>TelaShare</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <h1>TelaShare</h1>
+
+    <!-- CONEXÃO -->
+    <section id="connectBox">
+      <h2>Conexão</h2>
+      <label>Seu nome
+        <input id="nameInput" maxlength="24" placeholder="Ex: Juliano">
+      </label>
+      <label>Código da sala
+        <input id="roomInput" maxlength="32" placeholder="Ex: minhasala123">
+      </label>
+      <div class="row">
+        <button id="hostBtn" class="primary">Criar sala</button>
+        <button id="joinBtn">Entrar</button>
+      </div>
+      <p class="hint">Um cria a sala, os outros entram com o mesmo código.</p>
+    </section>
+
+    <section id="roomBox" class="hidden">
+      <h2>Sala: <span id="roomName"></span></h2>
+      <p id="status" class="hint"></p>
+      <button id="leaveBtn" class="danger">Sair da sala</button>
+    </section>
+
+    <!-- ÁUDIO -->
+    <section>
+      <h2>Áudio</h2>
+      <label>Microfone (entrada)
+        <select id="micSelect"></select>
+      </label>
+      <label>Volume do microfone: <span id="micVolVal">100%</span>
+        <input type="range" id="micVol" min="0" max="200" value="100">
+      </label>
+      <div class="meter"><div id="micMeter"></div></div>
+      <label class="check"><input type="checkbox" id="noiseChk" checked> Supressão de ruído / eco</label>
+      <button id="muteBtn">🎤 Microfone ligado</button>
+
+      <label>Saída (alto-falante/fone)
+        <select id="outSelect"></select>
+      </label>
+      <label>Volume geral de saída: <span id="outVolVal">100%</span>
+        <input type="range" id="outVol" min="0" max="100" value="100">
+      </label>
+    </section>
+
+    <!-- COMPARTILHAMENTO -->
+    <section>
+      <h2>Compartilhar tela</h2>
+      <label class="check"><input type="checkbox" id="shareAudioChk" checked> Incluir áudio do PC</label>
+      <label>Qualidade
+        <select id="qualitySelect">
+          <option value="720_30">720p 30fps (leve)</option>
+          <option value="1080_30" selected>1080p 30fps</option>
+          <option value="1080_60">1080p 60fps (jogos)</option>
+        </select>
+      </label>
+      <label>Volume do áudio da tela enviado: <span id="shareVolVal">100%</span>
+        <input type="range" id="shareVol" min="0" max="200" value="100">
+      </label>
+      <button id="shareBtn" class="primary" disabled>🖥️ Compartilhar tela</button>
+    </section>
+
+    <!-- PARTICIPANTES -->
+    <section>
+      <h2>Participantes</h2>
+      <ul id="peerList"><li class="hint">Ninguém conectado</li></ul>
+    </section>
+  </aside>
+
+  <main id="stage">
+    <div id="empty" class="empty">
+      <p>Nenhuma tela sendo compartilhada.</p>
+      <p class="hint">Dê duplo clique em uma tela para tela cheia.</p>
+    </div>
+    <div id="grid"></div>
+  </main>
+
+  <!-- Seletor de tela -->
+  <div id="picker" class="modal hidden">
+    <div class="modal-box">
+      <h2>Escolha o que compartilhar</h2>
+      <div id="sourceGrid"></div>
+      <div class="row right">
+        <button id="pickerCancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="node_modules/peerjs/dist/peerjs.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
