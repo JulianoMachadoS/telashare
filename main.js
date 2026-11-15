@@ -24,6 +24,9 @@ const fs = require('fs');
 // Mostra os IPs locais reais nas conexões WebRTC (em vez de nomes .local ocultos).
 // Necessário para conectar via VPN (Radmin/Tailscale/ZeroTier) e rede local.
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+// Permite excluir o som do próprio app da captura do áudio do PC (restrictOwnAudio, #35).
+// Sem isso, quem compartilha a tela com áudio reenvia a voz de todos da sala (eco).
+app.commandLine.appendSwitch('enable-features', 'RestrictOwnAudio');
 
 const PROTOCOL = 'telashare';
 const PROJECT_URL = 'https://github.com/JulianoMachadoS/telashare';

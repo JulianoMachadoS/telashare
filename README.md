@@ -205,9 +205,11 @@ nada no app.
 
 ## ⚠️ Limitações e dicas
 
-- **Eco no áudio da tela:** "Incluir áudio do PC" captura *todo* o som do Windows, inclusive a voz
-  dos colegas saindo no seu fone. Por isso eles podem se ouvir com atraso enquanto você compartilha.
-  Se incomodar, abaixe o **Volume do áudio da tela enviado** ou desmarque o áudio do PC.
+- **Eco no áudio da tela:** desde a v1.3.5, "Incluir áudio do PC" captura o som do Windows **sem** o
+  som do próprio TelaShare, ou seja, sem as vozes da sala. Se o Windows não conseguir separar, aparece o aviso
+  "⚠️ Este PC não conseguiu separar o som da chamada..." e os colegas podem se ouvir repetidos. Nesse
+  caso, desmarque o áudio do PC se não precisar dele. Fone de ouvido **não** resolve, porque a
+  captura pega o som antes de ele chegar ao fone.
 - **"Sala não encontrada"**: o código está diferente nos dois PCs, ou quem criou a sala fechou o app.
   O código ignora maiúsculas, espaços e acentos.
 - **"A sala existe, mas não foi possível conectar diretamente"**: veja o item abaixo.
@@ -285,6 +287,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 28 | **(#32)** O anfitrião sai e cria a sala de novo (todos se religam); sai de vez (um convidado assume e uma pessoa nova encontra todos); volta com "Criar sala" (entra na sala existente) |
 | 29 | **(#30)** Ligação entre dois convidados bloqueada (simulado): tenta de novo até conectar; bloqueada de vez avisa os dois e mostra ⚠️ na lista; quando libera, conecta e o aviso some |
 | 30 | **(#33)** A chamada da tela falha nas primeiras vezes e é refeita até aparecer; o vídeo cai depois de conectado e volta sozinho, sem afetar a voz |
+| 31 | **(#35)** Compartilhar com áudio pede a captura **sem** o som do próprio app e avisa quando o sistema não consegue separar (captura simulada: o áudio do PC real só existe no Windows) |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

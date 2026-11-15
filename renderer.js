@@ -1314,7 +1314,9 @@ async function startShare() {
   try {
     screenRaw = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: currentQuality.fps },
-      audio: withAudio
+      // restrictOwnAudio: o áudio do PC NÃO inclui o som do próprio TelaShare (as vozes da
+      // sala). Sem isso, quem compartilha reenvia a voz de todo mundo e todos ouvem eco (#35).
+      audio: withAudio ? { restrictOwnAudio: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false
     });
   } catch (e) {
     alert('Não foi possível capturar a tela: ' + e.message);
@@ -1333,6 +1335,15 @@ async function startShare() {
 
   const tracks = [vTrack];
   const aTrack = screenRaw.getAudioTracks()[0];
+  screenAudioExcludesSelf = null;
+  if (aTrack) {
+    const st = aTrack.getSettings ? aTrack.getSettings() : {};
+    screenAudioExcludesSelf = st.restrictOwnAudio === true;
+    if (!screenAudioExcludesSelf) {
+      showToast('⚠️ Este PC não conseguiu separar o som da chamada do áudio do PC: quem está na sala ' +
+                'pode ouvir a própria voz repetida. Se não precisar do som da tela, desmarque "Incluir áudio do PC".', 'warn', 12000);
+    }
+  }
   if (aTrack) {
     // passa o áudio da tela por um ganho (volume ajustável)
     screenAudioNode = audioCtx.createMediaStreamSource(new MediaStream([aTrack]));
@@ -1380,6 +1391,8 @@ function stopShare() {
 // =====================================================================
 // Prévia da sua própria tela compartilhada: pode ser ocultada (economiza GPU)
 let localPreview = null;
+// true quando o áudio do PC capturado exclui o som do próprio app (sem eco das vozes)
+let screenAudioExcludesSelf = null;
 function applyPreviewHidden() {
   const t = tileEl('__local__');
   if (!t) return;
