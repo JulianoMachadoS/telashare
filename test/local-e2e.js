@@ -590,6 +590,31 @@ app.whenReady().then(async () => {
     const mainSrc = require('fs').readFileSync(path.join(APP, 'main.js'), 'utf8');
     check('31d. (#35) O app liga o recurso do Chromium que exclui o próprio som (RestrictOwnAudio)', /appendSwitch\('enable-features', '[^']*RestrictOwnAudio/.test(mainSrc));
     destroy([A]); }
+  // 32. (#34) Diagnóstico: diz quais ligações existem, quais faltam e o que aconteceu
+  if (want(32)) {
+    const block = (w, n) => js(w, `(() => { window.__block = ${n}; if (!window.__rc) { window.__rc = Peer.prototype.connect;
+      Peer.prototype.connect = function (id, o) {
+        if (!String(id).startsWith('telashare-') && window.__block > 0) { window.__block--; return window.__rc.call(this, 'telashare-bloqueado-' + Math.random().toString(36).slice(2), o); }
+        return window.__rc.call(this, id, o); }; } return 1; })()`);
+    const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+    for (const w of [B, C]) { await block(w, 1e9); await js(w, 'pairTimeoutMs = 2500; pairCfg = { max: 2, delays: [300, 300], slow: 60000 }; pairWarnMs = 4000; 1'); }
+    await host(A, room); await wait(2500); await join(B, room, 'Bia'); await wait(1000); await join(C, room, 'Caio');
+    await until(async () => await js(B, 'unreachable.size === 1'), 40000);
+    lastCopied = '';
+    await js(B, 'diagBtn.click(); 1');
+    await until(async () => lastCopied.length > 0, 5000);
+    const d = lastCopied;
+    const hostLine = /- Host \(ID da sala\)[\s\S]*?dados: aberto \[connected\/(connected|completed) · host→host/.test(d);
+    const voice = /voz: \[connected/.test(d);
+    const missing = /SEM ligação comigo:\s*\n- Caio \([0-9a-f]{8}\) · avisado · tentativas: \d+/.test(d);
+    const events = /entrei na sala/.test(d) && /Host \(ID da sala\) ligado/.test(d) && /Caio .*SEM conexão direta/.test(d);
+    const noIp = !/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/.test(d) && !/[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}:/i.test(d);
+    check('32a. (#34) Diagnóstico mostra versão, sala e cada ligação (dados e voz, com tipo de conexão)', /^TelaShare v0\.0\.0-teste/.test(d) && d.includes('Sala: ' + room) && hostLine && voice, hostLine + ' ' + voice);
+    check('32b. (#34) Diagnóstico lista quem está na sala SEM ligação comigo', missing);
+    check('32c. (#34) Diagnóstico traz os últimos eventos (entrou, ligou, sem conexão direta)', events);
+    check('32d. (#34) Diagnóstico não expõe endereços IP', noIp);
+    if (process.env.MOSTRAR || !(hostLine && voice && missing && events && noIp)) console.log(d.split('\n').map(l => '    | ' + l).join('\n'));
+    destroy([A, B, C]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

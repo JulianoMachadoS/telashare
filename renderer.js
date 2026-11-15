@@ -610,6 +610,7 @@ let joinTarget = null;
 const SIGNAL_MAX_ATTEMPTS = 8;
 
 function enterRoom(room) {
+  logEvent(`entrei na sala ${room}${isHost ? ' como anfitrião' : ''}`);
   roomCode = room;
   leaving = false;
   const me = peer; // os eventos abaixo só valem para ESTA conexão (a reconexão cria outra)
@@ -636,6 +637,7 @@ function enterRoom(room) {
   me.on('error', err => {
     if (peer !== me) return;
     console.warn('peer error', err.type, err);
+    logEvent(`erro do servidor/peer: ${err.type}`);
     if (err.type === 'peer-unavailable') {
       // O servidor respondeu que não existe ninguém com esse ID: a sala realmente não existe
       if (joinTarget && String(err.message).includes(joinTarget) && joinRetryFn) joinRetryFn();
@@ -720,6 +722,7 @@ function scheduleRejoin() {
     rejoining = true;
     rejoinAttempt = 0;
     playSound('warn');
+    logEvent('perdi a ligação com todos: reconectando');
     showToast('📶 Conexão perdida. Tentando reconectar...', 'warn');
   }
   rejoinAttempt++;
@@ -863,6 +866,7 @@ function rosterName(id) {
 // Liga/desliga o aviso de "sem conexão direta" para uma pessoa da sala
 function setUnreachable(id, on) {
   if (on === unreachable.has(id)) return;
+  logEvent(`${rosterName(id)} (${shortId(id)}): ${on ? 'SEM conexão direta (avisado)' : 'conexão direta ok'}`);
   if (on) {
     unreachable.add(id);
     playSound('warn');
@@ -942,6 +946,7 @@ async function claimRoom() {
   pending.clear(); pairRetry.clear(); relinking.clear();
   enterRoom(roomCode);
   showToast('👑 O anfitrião saiu. Você agora mantém a sala aberta.', 'info');
+  logEvent('assumi a sala (o anfitrião saiu)');
   setTimeout(() => { try { old.destroy(); } catch {} }, 500);
   claiming = false;
 }
@@ -1013,7 +1018,7 @@ function setupConn(conn, outgoing) {
         applyVolumes();
         renderPeers();
         updateAllTileNames();
-        if (first) playSound('join');
+        if (first) { playSound('join'); logEvent(`${p.name} (${shortId(p.id)}) ligado`); }
         if (relinking.has(p.id)) {
           relinking.delete(p.id);
           showToast(`✅ Religado com ${displayName(p)}`, 'ok');
@@ -1057,13 +1062,14 @@ function setupConn(conn, outgoing) {
     const p = peers.get(conn.peer);
     if (p && p.conn === conn) removePeer(conn.peer, 'closed');
   });
-  conn.on('error', e => console.warn('conn error', e));
+  conn.on('error', e => { console.warn('conn error', e); logEvent(`erro na ligação com ${shortId(conn.peer)}: ${(e && (e.type || e.message)) || e}`); });
 }
 
 // reason: 'bye' (saiu de propósito), 'leave' (eu saí), 'closed' / 'timeout' (conexão caiu)
 function removePeer(id, reason = 'closed') {
   const p = peers.get(id);
   if (!p) return;
+  logEvent(`${p.name} (${shortId(id)}) removido: ${({ bye: 'saiu', leave: 'eu saí', closed: 'ligação fechou', timeout: 'sem resposta', migrate: 'assumiu a sala' })[reason] || reason}`);
   const wasConnected = !!(p.conn && p.helloed);
   [p.micCall, p.screenOut, p.screenIn].forEach(c => { try { c && c.close(); } catch {} });
   try { p.conn && p.conn.close(); } catch {}
@@ -1184,6 +1190,7 @@ function retryScreen(p, call) {
   p.screenOut = null;
   if (!screenStream || !isOpen(p.id)) return;
   p.screenTries = (p.screenTries || 0) + 1;
+  logEvent(`minha tela para ${p.name}: refazendo a chamada (tentativa ${p.screenTries})`);
   if (p.screenTries > screenCfg.max) {
     if (!p.screenWarned) {
       p.screenWarned = true;
@@ -1266,6 +1273,7 @@ function checkScreenIn(p, now) {
     }
     return;
   }
+  logEvent(`tela de ${p.name} não chegou: pedindo de novo (${p.screenReqs})`);
   try { p.conn.send({ type: 'screen-request' }); } catch {}
 }
 
@@ -1584,6 +1592,81 @@ function renderPeers() {
 }
 
 // =====================================================================
+// DIAGNÓSTICO (#34): "🩺 Copiar diagnóstico" gera um texto com o estado de cada ligação e os
+// últimos eventos, para relatar problemas de testes reais (ex.: "B não vê a tela de C").
+// Não inclui endereços IP: só o tipo de cada conexão (host / srflx / relay).
+// =====================================================================
+const diagLog = [];
+function logEvent(msg) {
+  diagLog.push(`${new Date().toTimeString().slice(0, 8)} ${msg}`);
+  if (diagLog.length > 80) diagLog.shift();
+}
+const shortId = id => (!id ? '-' : id.startsWith(PREFIX) ? 'ID da sala' : id.slice(0, 8));
+
+async function pcInfo(pc) {
+  if (!pc) return 'nenhuma';
+  let s = `${pc.connectionState}/${pc.iceConnectionState}`;
+  try {
+    const stats = await pc.getStats();
+    let pair = null;
+    stats.forEach(r => { if (r.type === 'transport' && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId); });
+    if (!pair) stats.forEach(r => { if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r; });
+    if (pair) {
+      const lc = stats.get(pair.localCandidateId), rc = stats.get(pair.remoteCandidateId);
+      s += ` · ${lc ? lc.candidateType : '?'}→${rc ? rc.candidateType : '?'}${lc && lc.protocol ? ' ' + lc.protocol : ''}`;
+      if (pair.currentRoundTripTime != null) s += ` · ${Math.round(pair.currentRoundTripTime * 1000)} ms`;
+    }
+  } catch {}
+  return s;
+}
+
+async function buildDiagnostics() {
+  const L = [];
+  let ver = '?';
+  try { ver = await window.native.getVersion(); } catch {}
+  const pcOf = c => c && c.peerConnection;
+  L.push(`TelaShare v${ver} · ${window.native.platform} · ${new Date().toISOString()}`);
+  L.push(`Sala: ${roomCode || '-'} · Eu: ${$('nameInput').value.trim() || '-'} (${peer ? shortId(peer.id) : 'fora da sala'})${isHost ? ' · anfitrião' : ''}`);
+  L.push(`Servidor de sinalização: ${!peer ? '-' : peer.disconnected ? 'desconectado' : peer.open ? 'conectado' : 'conectando'} · TURN: ${$('turnUrl').value.trim() ? 'configurado' : 'não'}`);
+  const sharing = !screenStream ? 'não' : screenStream.getAudioTracks().length
+    ? `sim, com áudio do PC (sem as vozes da sala: ${screenAudioExcludesSelf ? 'sim' : 'NÃO'})` : 'sim, sem áudio';
+  L.push(`Microfone: ${micMuted ? 'mudo' : 'ligado'} · Compartilhando a tela: ${sharing}`);
+  L.push('');
+  L.push('Ligações (dados | voz | minha tela → | ← tela da pessoa):');
+  const linked = [...peers.values()].filter(p => p.conn);
+  if (!linked.length) L.push('- nenhuma');
+  for (const p of linked) {
+    L.push(`- ${displayName(p)} (${shortId(p.id)})${p.muted ? ' · mudo' : ''}${p.sharing ? ' · compartilhando' : ''}`);
+    L.push(`    dados: ${p.conn.open ? 'aberto' : 'fechado'} [${await pcInfo(pcOf(p.conn))}]`);
+    L.push(`    voz: [${await pcInfo(pcOf(p.micCall))}]${p.voiceStream ? '' : ' · sem áudio recebido'}`);
+    if (screenStream) L.push(`    minha tela →: [${await pcInfo(pcOf(p.screenOut))}]${p.screenTries ? ` · tentativas ${p.screenTries}` : ''}`);
+    if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
+  }
+  const missing = [...roster.keys()].filter(id => !isOpen(id) && !(peers.get(id) && peers.get(id).conn));
+  if (missing.length) {
+    L.push('');
+    L.push('Na sala, mas SEM ligação comigo:');
+    for (const id of missing) {
+      const r = pairRetry.get(id);
+      L.push(`- ${rosterName(id)} (${shortId(id)}) · ${unreachable.has(id) ? 'avisado' : 'tentando'} · tentativas: ${r ? r.n : 0} · ` +
+             `quem inicia: ${peer && peer.id < id ? 'eu' : 'a outra pessoa'}${pending.has(id) ? ' · tentativa em andamento' : ''}`);
+    }
+  }
+  L.push('');
+  L.push('Últimos eventos:');
+  L.push(...(diagLog.length ? diagLog : ['(nenhum)']));
+  return L.join('\n');
+}
+
+async function copyDiagnostics() {
+  await window.native.copyText(await buildDiagnostics());
+  const b = $('diagBtn');
+  b.textContent = '✅ Diagnóstico copiado!';
+  setTimeout(() => (b.textContent = '🩺 Copiar diagnóstico'), 2000);
+  showToast('🩺 Diagnóstico copiado. Cole na conversa com quem está ajudando (não tem endereços IP).', 'ok');
+}
+
+// =====================================================================
 // HEARTBEAT: detecta quem saiu sem avisar (app fechado, internet caiu)
 // =====================================================================
 const HEARTBEAT_MS = 2000;
@@ -1840,6 +1923,7 @@ async function init() {
   $('joinBtn').onclick = joinRoom;
   $('leaveBtn').onclick = leaveRoom;
   $('inviteBtn').onclick = copyInvite;
+  $('diagBtn').onclick = copyDiagnostics;
   $('projectLink').onclick = e => { e.preventDefault(); window.native.openProject && window.native.openProject(); };
   initAbout();
   checkUpdate(false); // uma consulta ao abrir; mostra aviso se houver versão nova
