@@ -304,6 +304,9 @@ app.whenReady().then(async () => {
       const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,640,360); }, 100);
       screenStream = c.captureStream(10); for (const p of peers.values()) callScreen(p.id); return 1; })()`);
     await until(async () => (await js(B, '[...peers.values()][0].screenOut.peerConnection.connectionState')) === 'connected', 15000);
+    // espera o app aplicar a configuração inicial da tela (senão ela pode sobrescrever o nível do teste)
+    await until(async () => await js(B, `(() => { const s = [...peers.values()][0].screenOut.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+      const e = s && s.getParameters().encodings[0]; return !!(e && e.maxBitrate); })()`), 10000);
     const enc = await js(B, `(async () => { const pc = [...peers.values()][0].screenOut.peerConnection; const out = [];
       for (const lvl of [2, 0]) { applyEncoding(pc, lvl); await new Promise(r => setTimeout(r, 500));
         const e = pc.getSenders().find(s => s.track && s.track.kind === 'video').getParameters().encodings[0];
