@@ -241,30 +241,45 @@ app.whenReady().then(async () => {
     await js(B, 'muteBtn.click(); 1');
     const off = await until(async () => !(await liMuted()), 5000);
     check('13. Indicador de mudo aparece e some para os outros', on && off);
-  // 14. Ducking: o som das telas abaixa quando alguém fala (bipe do microfone falso)
-    const duckSeen = await js(A, `(async () => { let min = 1; const t = Date.now();
-      while (Date.now() - t < 4000) { min = Math.min(min, duckFactor); await new Promise(r => setTimeout(r, 30)); }
-      return min; })()`);
+  // 14. Ducking: o som das telas abaixa quando alguém fala.
+  //     Usa uma "voz" SINTÉTICA com ritmo controlado (300 ms de som a cada 1,5 s) no lugar do
+  //     bipe do microfone falso, cujo ritmo muda de máquina para máquina (no CI ele quase não
+  //     tinha pausas e o ducking nunca "soltava").
+    await js(A, `(() => {
+      const p = [...peers.values()][0];
+      try { p.voiceSrc.disconnect(p.analyser); } catch {}
+      const o = audioCtx.createOscillator(); o.frequency.value = 300;
+      const g = audioCtx.createGain(); g.gain.value = 0;
+      o.connect(g).connect(p.analyser); o.start();
+      const on = () => { g.gain.value = 0.5; setTimeout(() => (g.gain.value = 0), 300); };
+      on(); window.__voz = setInterval(on, 1500);
+      return 1; })()`);
+    // acompanha o ducking por 5 s: tem que abaixar E voltar, várias vezes
+    const watchDuck = () => js(A, `(async () => { let changes = 0, last = duckFactor, min = 1, max = 0, spoke = false, quiet = false; const t = Date.now();
+      while (Date.now() - t < 5000) {
+        if (duckFactor !== last) { changes++; last = duckFactor; }
+        min = Math.min(min, duckFactor); max = Math.max(max, duckFactor);
+        const li = document.querySelector('#peerList li');
+        if (li && li.classList.contains('speaking')) spoke = true; else quiet = true;
+        await new Promise(r => setTimeout(r, 20)); }
+      return { changes, min, max, spoke, quiet }; })()`);
+    await js(A, 'duckChk.checked = true; duckChk.onchange(); 1');
+    const duckOn = await watchDuck();
     await js(A, 'duckChk.checked = false; duckChk.onchange(); 1');
-    const noDuck = await js(A, `(async () => { let min = 1; const t = Date.now();
-      while (Date.now() - t < 3000) { min = Math.min(min, duckFactor); await new Promise(r => setTimeout(r, 30)); }
-      return min; })()`);
-    check('14. Ducking abaixa o som das telas quando alguém fala (e desliga na opção)', duckSeen === 0.3 && noDuck === 1, `ligado=${duckSeen} desligado=${noDuck}`);
+    await wait(300); // deixa o timer de 50 ms aplicar a mudança antes de medir
+    const duckOff = await watchDuck();
+    check('14. Ducking abaixa e volta quando alguém fala (e desliga na opção)',
+      duckOn.min === 0.3 && duckOn.max === 1 && duckOn.changes >= 4 && duckOff.min === 1,
+      `ligado: ${duckOn.changes} mudanças, ${duckOn.min}–${duckOn.max} | desligado: mín ${duckOff.min}`);
   // 14b. App MINIMIZADO: o Windows para o requestAnimationFrame quando a janela não está
   //      visível. Aqui ele é desligado de propósito, para simular isso em qualquer sistema.
     await js(A, 'duckChk.checked = true; duckChk.onchange(); window.requestAnimationFrame = () => 0; 1');
     await wait(300);
-    // o ducking tem que MUDAR (abaixar e voltar) acompanhando o bipe intermitente do microfone
-    // falso; só ver 0,3 não basta, porque o código antigo ficava CONGELADO no último valor
-    const minimized = await js(A, `(async () => { let changes = 0, last = duckFactor, spoke = false, quiet = false; const t = Date.now();
-      while (Date.now() - t < 5000) {
-        if (duckFactor !== last) { changes++; last = duckFactor; }
-        const s = !!document.querySelector('#peerList li.speaking'); if (s) spoke = true; else quiet = true;
-        await new Promise(r => setTimeout(r, 30)); }
-      return { changes, spoke, quiet }; })()`);
+    const minimized = await watchDuck();
     check('14b. Com o app minimizado, ducking e indicador de "falando" continuam funcionando',
-      minimized.changes >= 2 && minimized.spoke && minimized.quiet,
+      minimized.changes >= 4 && minimized.spoke && minimized.quiet,
       `ducking mudou ${minimized.changes}x | falando=${minimized.spoke} | silêncio=${minimized.quiet}`);
+    await js(A, 'clearInterval(window.__voz); 1');
   // 15. Qualidade adaptativa: aplica os níveis no envio da tela
     await js(B, `(() => { const c = document.createElement('canvas'); c.width = 640; c.height = 360;
       const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,640,360); }, 100);

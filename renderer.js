@@ -972,6 +972,7 @@ function renderPeers() {
     ul.appendChild(li);
     paintNet(p);
     paintMuted(p);
+    li.classList.toggle('speaking', !!p.speaking); // mantém o 🔊 ao redesenhar a lista
   }
   updateBadge();
 }
