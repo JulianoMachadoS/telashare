@@ -250,6 +250,21 @@ app.whenReady().then(async () => {
       while (Date.now() - t < 3000) { min = Math.min(min, duckFactor); await new Promise(r => setTimeout(r, 30)); }
       return min; })()`);
     check('14. Ducking abaixa o som das telas quando alguém fala (e desliga na opção)', duckSeen === 0.3 && noDuck === 1, `ligado=${duckSeen} desligado=${noDuck}`);
+  // 14b. App MINIMIZADO: o Windows para o requestAnimationFrame quando a janela não está
+  //      visível. Aqui ele é desligado de propósito, para simular isso em qualquer sistema.
+    await js(A, 'duckChk.checked = true; duckChk.onchange(); window.requestAnimationFrame = () => 0; 1');
+    await wait(300);
+    // o ducking tem que MUDAR (abaixar e voltar) acompanhando o bipe intermitente do microfone
+    // falso; só ver 0,3 não basta, porque o código antigo ficava CONGELADO no último valor
+    const minimized = await js(A, `(async () => { let changes = 0, last = duckFactor, spoke = false, quiet = false; const t = Date.now();
+      while (Date.now() - t < 5000) {
+        if (duckFactor !== last) { changes++; last = duckFactor; }
+        const s = !!document.querySelector('#peerList li.speaking'); if (s) spoke = true; else quiet = true;
+        await new Promise(r => setTimeout(r, 30)); }
+      return { changes, spoke, quiet }; })()`);
+    check('14b. Com o app minimizado, ducking e indicador de "falando" continuam funcionando',
+      minimized.changes >= 2 && minimized.spoke && minimized.quiet,
+      `ducking mudou ${minimized.changes}x | falando=${minimized.spoke} | silêncio=${minimized.quiet}`);
   // 15. Qualidade adaptativa: aplica os níveis no envio da tela
     await js(B, `(() => { const c = document.createElement('canvas'); c.width = 640; c.height = 360;
       const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,640,360); }, 100);

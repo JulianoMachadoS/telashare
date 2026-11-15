@@ -27,8 +27,7 @@ const PREFIX = 'telashare-v1-';
 function peerOpts() {
   const iceServers = [
     { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-    { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
+    { urls: 'stun:stun.cloudflare.com:3478' }
   ];
   const turnUrls = ($('turnUrl').value || '').split(/[\s,]+/).filter(Boolean);
   if (turnUrls.length) {
@@ -246,6 +245,7 @@ function levels(analyser) {
   return { rms: Math.sqrt(sum / buf.length), peak };
 }
 
+// Medidor do microfone: só desenho, então pode parar quando a janela não está visível
 function meterLoop() {
   const { rms, peak } = levels(micAnalyser);
   const level = Math.min(1, rms * 5);
@@ -253,17 +253,27 @@ function meterLoop() {
   m.style.width = (level * 100).toFixed(0) + '%';
   m.classList.toggle('hot', peak > 0.95);
   m.classList.toggle('low', !micMuted && level < 0.08);
+  requestAnimationFrame(meterLoop);
+}
+
+// Detecção de quem está falando + ducking. Roda num timer próprio (e não no
+// requestAnimationFrame) porque precisa funcionar com o app MINIMIZADO, ex. durante um jogo:
+// no Windows o requestAnimationFrame para quando a janela não está visível.
+const VOICE_INTERVAL_MS = 50;
+function voiceLoop() {
   const now = performance.now();
   for (const p of peers.values()) {
     if (!p.analyser) continue;
     const speaking = !p.muted && levels(p.analyser).rms > 0.015;
     if (speaking) lastVoiceAt = now;
-    const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
-    if (li) li.classList.toggle('speaking', speaking);
+    if (speaking !== p.speaking) {
+      p.speaking = speaking;
+      const li = document.querySelector(`#peerList li[data-id="${CSS.escape(p.id)}"]`);
+      if (li) li.classList.toggle('speaking', speaking);
+    }
   }
   const target = $('duckChk').checked && now - lastVoiceAt < DUCK_HOLD_MS ? DUCK_LEVEL : 1;
   if (target !== duckFactor) { duckFactor = target; applyVolumes(); }
-  requestAnimationFrame(meterLoop);
 }
 
 // =====================================================================
@@ -1162,6 +1172,7 @@ async function init() {
   navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
   applyVolumes();
   meterLoop();
+  setInterval(voiceLoop, VOICE_INTERVAL_MS);
   netLoop();
   heartbeatLoop();
 
