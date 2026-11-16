@@ -17,7 +17,8 @@
  * along with this program. If not, see https://www.gnu.org/licenses/.
  */
 
-const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell, net } = require('electron');
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell, net, screen } = require('electron');
+const windowState = require('./window-state');
 const path = require('path');
 const fs = require('fs');
 
@@ -144,11 +145,15 @@ if (!gotLock) {
 }
 
 function createWindow() {
+  // tamanho e posição da última vez (#49)
+  const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+  const st = windowState.fit(windowState.load(stateFile), screen.getAllDisplays());
   win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
+    width: st.width,
+    height: st.height,
+    ...(st.x !== undefined ? { x: st.x, y: st.y } : {}),
+    minWidth: windowState.MIN.width,
+    minHeight: windowState.MIN.height,
     backgroundColor: '#1e1f22',
     autoHideMenuBar: true,
     title: 'TelaShare',
@@ -160,6 +165,8 @@ function createWindow() {
       backgroundThrottling: false
     }
   });
+  if (st.maximized) win.maximize();
+  windowState.track(win, stateFile);
   win.setMenu(null);
   // links nunca abrem dentro do app
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

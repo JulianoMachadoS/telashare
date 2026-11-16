@@ -46,6 +46,9 @@ já abre o app e entra na sala.
 > copie o link e cole na barra de endereço do navegador ou em **Win + R**, ou use o código da sala
 > que vai junto na mensagem.
 
+O app também **lembra o tamanho, a posição e se a janela estava maximizada**. Se o monitor onde
+ela estava for desconectado, ela abre centralizada no monitor principal.
+
 ### ↩️ Voltar para a última sala
 Depois de sair de uma sala, a tela inicial mostra **"↩️ Voltar para a sala abc-123 (há 5 min)"**.
 Um clique e você está de volta. Se a sala ainda estiver aberta, você entra nela. Se todos tiverem
@@ -267,6 +270,7 @@ Estrutura:
 test/         testes automatizados LOCAIS (npm test)
 main.js       processo principal (janela, captura de tela/áudio)
 preload.js    ponte segura entre o Electron e a página
+window-state.js  lembra o tamanho e a posição da janela
 index.html    interface
 renderer.js   lógica de conexão, áudio, volumes e compartilhamento
 style.css     visual
@@ -320,6 +324,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 36 | **(#47)** Tela em foco: a destacada fica grande e as outras viram miniaturas enviadas em qualidade bem menor; trocar o foco inverte; voltar para a grade restaura; com o app escondido, nada é enviado |
 | 37 | **(#37)** Esconder a barra lateral: as telas ocupam a janela toda, a barra mínima funciona (mudo), Ctrl+B alterna e a escolha vale depois de reabrir |
 | 38 | **(#48)** "Voltar para a sala": aparece depois de sair e um clique volta; com a sala vazia, o primeiro a voltar a abre de novo e o outro entra nela |
+| 39 | **(#49)** Tamanho e posição da janela: restaura, abre centralizada se o monitor foi desconectado, respeita o mínimo e o tamanho da tela, e salva quando a janela muda e ao fechar |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
