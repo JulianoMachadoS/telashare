@@ -1,7 +1,7 @@
 {
   "name": "telashare",
   "productName": "TelaShare",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "TelaShare - compartilhamento de tela com áudio",
   "main": "main.js",
   "author": "Juliano Machado da Silva (https://github.com/JulianoMachadoS)",

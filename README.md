@@ -325,6 +325,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 37 | **(#37)** Esconder a barra lateral: as telas ocupam a janela toda, a barra mínima funciona (mudo), Ctrl+B alterna e a escolha vale depois de reabrir |
 | 38 | **(#48)** "Voltar para a sala": aparece depois de sair e um clique volta; com a sala vazia, o primeiro a voltar a abre de novo e o outro entra nela |
 | 39 | **(#49)** Tamanho e posição da janela: restaura, abre centralizada se o monitor foi desconectado, respeita o mínimo e o tamanho da tela, e salva quando a janela muda e ao fechar |
+| 40 | **(#55)** 25 mudanças seguidas de qualidade da tela (foco, pausa, adaptativa): a última pedida é a que fica valendo |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

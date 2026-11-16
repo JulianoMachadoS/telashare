@@ -829,6 +829,30 @@ app.whenReady().then(async () => {
       JSON.stringify({ saved, onClose }));
     try { fs.rmSync(path.dirname(file), { recursive: true, force: true }); } catch {}
   }
+  // 40. (#55) Várias mudanças de qualidade da tela ao mesmo tempo: a última pedida é a que vale
+  if (want(40)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000);
+    await js(B, `(() => { const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+      const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,1280,720); }, 100);
+      currentQuality = QUALITY['1080_30']; screenStream = c.captureStream(10); for (const p of peers.values()) callScreen(p.id); return 1; })()`);
+    await until(async () => (await js(B, '[...peers.values()][0].screenOut.peerConnection.connectionState')) === 'connected', 20000);
+    await wait(1500);
+    const rapid = last => js(B, `(async () => { const p = [...peers.values()][0]; const pc = p.screenOut.peerConnection;
+      p.viewMode = 'full'; const modes = ['thumb', 'off', 'full', 'thumb'];
+      for (let i = 0; i < 24; i++) applyEncoding(pc, i % 3, modes[i % 4]);
+      applyEncoding(pc, ${last.level}, '${last.mode}');
+      await new Promise(r => setTimeout(r, 1500));
+      const e = pc.getSenders().find(s => s.track && s.track.kind === 'video').getParameters().encodings[0];
+      return { active: e.active !== false, scale: e.scaleResolutionDownBy, br: e.maxBitrate, fps: e.maxFramerate }; })()`);
+    const r1 = await rapid({ level: 0, mode: 'full' });
+    const r2 = await rapid({ level: 1, mode: 'thumb' });
+    const r3 = await rapid({ level: 0, mode: 'off' });
+    check('40. (#55) 25 mudanças seguidas de qualidade: a última pedida é a que fica valendo',
+      r1.active && r1.scale === 1 && r1.br === 4500000 && r1.fps === 30 &&
+      r2.active && r2.scale === 4 && r2.br === 300000 && r2.fps === 10 &&
+      !r3.active, JSON.stringify({ r1, r2, r3 }));
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
