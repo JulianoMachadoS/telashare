@@ -119,6 +119,10 @@ button.muted { background: #da373c; }
 #grid.focus .tile:not(.focused) .bar .q,
 #grid.focus .tile:not(.focused) .bar button:not(.focusBtn) { display: none; }
 .tile video { cursor: pointer; }
+/* Tela que escolhi não assistir (#59): vira uma barrinha; o som continua */
+.tile.unwatched video { display: none; }
+.tile.unwatched .focusBtn, .tile.unwatched .bar button:not(.watchBtn) { display: none; }
+.tile.unwatched .bar .who::after { content: " · 🙈 você não está assistindo"; color: #949ba4; }
 .tile:fullscreen { display: flex; flex-direction: column; border-radius: 0; }
 .tile:fullscreen video { flex: 1; aspect-ratio: auto; height: 0; }
 details { margin-top: 10px; font-size: 13px; }
