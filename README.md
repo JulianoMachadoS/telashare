@@ -80,6 +80,7 @@ saído, você a abre de novo com o mesmo código, e os outros podem voltar tamb�
 | **Sons de aviso** | Bipes curtos quando alguém entra, sai, compartilha a tela, quando você muta, quando a conexão cai e quando volta. Com volume próprio |
 | **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
 | **◀ Esconder a barra lateral** (`Ctrl+B`) | As telas ocupam a janela toda e fica só uma barra mínima com ☰ (mostrar a barra), o status da conexão, 🎤 mudo, 🖥️ compartilhar e 📞 sair. O app lembra a escolha |
+| **🙈 Não assistir** (em cada tela) | A tela vira uma barrinha e quem compartilha **para de enviar o vídeo para você**, o que alivia o seu PC e o dele. **O som da tela continua**, com o volume na barrinha (dá para pôr em 0%). **👁️ Assistir** traz o vídeo de volta. A escolha vale até você fechar o app, mesmo se a pessoa parar e voltar a compartilhar |
 | **🔍 Tela em foco** | Clique numa tela (ou no 🔍) para deixá-la grande. As outras viram miniaturas à direita e chegam em **qualidade bem menor** (1/4 da resolução, 10 fps), o que alivia o seu PC e o de quem compartilha. Clique de novo (ou no ↩️) para voltar à grade. Duplo clique continua abrindo em tela cheia |
 | **Pausar o vídeo das telas com o app escondido** | Com o TelaShare minimizado ou coberto por outra janela (ex.: jogo em tela cheia) por mais de 2 s, quem compartilha **para de enviar o vídeo** para você. O seu PC não decodifica e o de quem compartilha não codifica aquele vídeo. **O som da tela e as vozes continuam.** Ao voltar para o app, o vídeo volta em ~1 s. Ligado por padrão |
 
@@ -157,6 +158,10 @@ Para isso, cada participante avisa a cada 3 s com quem está ligado, e todos sab
 várias vezes e, depois de ~20 s, avisa: "⚠️ Sem conexão direta com Fulano". A pessoa aparece em
 **Participantes** com ⚠️. O app continua tentando a cada 1 minuto, e se a rede liberar, conecta sozinho.
 Para resolver de vez, use um servidor **TURN** em "Avançado" ou uma **VPN** (veja abaixo).
+
+**A voz também vai por uma conexão própria.** Se ela não conectar em ~12 s (os nomes aparecem,
+mas fica "Conectando..." e não há som), o app refaz a chamada sozinho. Se desistir depois de algumas
+tentativas, avisa: "⚠️ Sem áudio com Fulano".
 
 **A tela vai por uma conexão separada da voz.** Se ela não conecta ou cai, quem compartilha refaz a
 chamada sozinho, e quem assiste pede de novo se a tela não chegar. Se mesmo assim não chegar, os dois
@@ -333,6 +338,10 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 39 | **(#49)** Tamanho e posição da janela: restaura, abre centralizada se o monitor foi desconectado, respeita o mínimo e o tamanho da tela, e salva quando a janela muda e ao fechar |
 | 40 | **(#55)** 25 mudanças seguidas de qualidade da tela (foco, pausa, adaptativa): a última pedida é a que fica valendo |
 | 41 | **(#35)** Áudio do PC pelo auxiliar: o módulo inicia/para e informa erros (auxiliar **falso**); o app usa o auxiliar no lugar da captura antiga e volta para ela com aviso se ele falhar |
+| 42 | **(#57)** A chamada de voz trava (nunca é atendida): quem liga refaz, ou quem recebe pede de novo, até o áudio chegar nos dois lados |
+| 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
+| 44 | **(#59)** "Não assistir": a tela vira barrinha, o vídeo para de vir e o som continua; a escolha vale quando a pessoa volta a compartilhar; "Assistir" traz o vídeo de volta |
+| 45 | **(#61)** Desistir de entrar numa sala e depois criar outra: com o amigo conectado, o selo mostra "Conectado" (antes ficava preso em "Conectando à sala...") |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

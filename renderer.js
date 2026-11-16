@@ -517,6 +517,7 @@ async function hostRoom() {
     } else alert('Erro ao criar sala: ' + (err.message || err.type));
     return;
   }
+  clearJoin();
   isHost = true;
   enterRoom(f.room);
 }
@@ -604,6 +605,13 @@ function tryJoin() {
 }
 let joinAttempts = 0;
 let joinTarget = null;
+// Encerra qualquer tentativa de ENTRAR em andamento (#61). Sem isso, sair no meio de uma
+// tentativa deixava o selo preso em "Conectando à sala..." mesmo depois de criar outra sala.
+function clearJoin() {
+  joinTarget = null;
+  joinRetryFn = null;
+  joinAttempts++; // invalida os temporizadores da tentativa antiga
+}
 
 // Conexão com o servidor de sinalização caiu: tenta voltar com limite de tentativas.
 // (Quem já está conectado continua conversando; o servidor só serve para novas entradas.)
@@ -694,6 +702,7 @@ function leaveRoom() {
   sayGoodbye();
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
   clearMesh();
+  clearJoin();
   hostLostAt = hostNextDial = claimNext = 0;
   everConnected = false;
   if (peer) { peer.destroy(); peer = null; }
@@ -938,7 +947,7 @@ function meshLoop() {
     pairRetry.set(id, r);
     dial(id);
   }
-  for (const p of peers.values()) checkScreenIn(p, now);
+  for (const p of peers.values()) { checkScreenIn(p, now); checkMic(p, now); }
   if (!isHost && !claiming && everConnected) watchHost(now, open);
 }
 
@@ -968,6 +977,7 @@ async function claimRoom() {
   broadcast({ type: 'migrate' });
   const old = peer;
   peer = np;
+  clearJoin();
   isHost = true;
   hostLostAt = 0;
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
@@ -998,6 +1008,7 @@ function setupConn(conn, outgoing) {
     p.conn = conn;
     p.lastSeen = Date.now();
     everConnected = true;
+    if (joinTarget && conn.peer === joinTarget) clearJoin(); // já estamos ligados à sala
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
     if (myViewMode(p) !== 'full') conn.send({ type: 'screen-view', mode: myViewMode(p) });
     if (rejoining) rejoinSucceeded();
@@ -1082,6 +1093,10 @@ function setupConn(conn, outgoing) {
           applyEncoding(p.screenOut.peerConnection, p.sendLevel || 0, p.viewMode);
         }
         break;
+      case 'mic-request':
+        // o outro lado está sem a nossa voz: refaz a chamada (no máximo uma a cada 3 s)
+        if (isMicCaller(p) && Date.now() - (p.micCalledAt || 0) > 3000) callMic(p.id);
+        break;
       case 'screen-request':
         // quem assiste não recebeu a tela: refaz a chamada (no máximo uma a cada 3 s)
         if (screenStream && Date.now() - (p.screenCalledAt || 0) > 3000) { p.screenTries = 0; callScreen(p.id); }
@@ -1138,7 +1153,44 @@ function removePeer(id, reason = 'closed') {
 // ---------- chamadas de mídia ----------
 function callMic(id) {
   const call = peer.call(id, micDest.stream, { metadata: { kind: 'mic' } });
+  const p = getPeer(id);
+  p.micCalledAt = Date.now();
   attachMicCall(call);
+}
+
+// =====================================================================
+// VOZ VIGIADA (#57): a chamada de voz é uma conexão separada da de dados. Se ela travar no
+// meio do caminho (ex.: uma mensagem do aperto de mão se perdeu no servidor de sinalização),
+// os nomes aparecem mas não há áudio e o indicador fica em "Conectando..." para sempre.
+// Aqui, se a voz com alguém não conecta em ~12 s, quem liga (o ID menor, a mesma regra da
+// malha) refaz a chamada; o outro lado pede ('mic-request'). Com limite, e avisa se desistir.
+// =====================================================================
+let micCfg = { connectMs: 12000, max: 5 };
+function isMicCaller(p) { return !!peer && peer.id < p.id; }
+
+function checkMic(p, now) {
+  if (!p.conn || !p.conn.open) return;
+  const pc = p.micCall && p.micCall.peerConnection;
+  if (pc && pc.connectionState === 'connected') {
+    p.micSince = 0; p.micTries = 0;
+    if (p.micWarned) { p.micWarned = false; showToast(`✅ Áudio com ${displayName(p)} conectado`, 'ok'); }
+    return;
+  }
+  if (!p.micSince) { p.micSince = now; return; }
+  if (now - p.micSince < micCfg.connectMs) return;
+  p.micSince = now;
+  p.micTries = (p.micTries || 0) + 1;
+  if (p.micTries > micCfg.max) {
+    if (!p.micWarned) {
+      p.micWarned = true;
+      playSound('warn');
+      showToast(`⚠️ Sem áudio com ${displayName(p)}: a chamada de voz não conecta. Copie o 🩺 diagnóstico e envie para quem está ajudando.`, 'warn', 12000);
+    }
+    return;
+  }
+  logEvent(`voz com ${p.name} não conectou (${pc ? pc.connectionState + '/' + pc.iceConnectionState : 'sem chamada'}): ${isMicCaller(p) ? 'refazendo a chamada' : 'pedindo para ligar de novo'} (${p.micTries})`);
+  if (isMicCaller(p)) callMic(p.id);
+  else { try { p.conn.send({ type: 'mic-request' }); } catch {} }
 }
 
 function handleIncomingCall(call) {
@@ -1591,6 +1643,12 @@ function showTile(id, stream, isLocal) {
     const mut = document.createElement('span');
     mut.className = 'tmut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
     bar.appendChild(mut);
+    if (!isLocal) {
+      const wb = document.createElement('button');
+      wb.className = 'watchBtn';
+      wb.onclick = () => toggleWatch(id);
+      bar.appendChild(wb);
+    }
     const fb = document.createElement('button');
     fb.className = 'focusBtn';
     fb.onclick = () => toggleFocus(id);
@@ -1699,6 +1757,24 @@ function toggleFocus(id) {
   focusId = focusId === id ? null : id;
   applyFocus();
 }
+// =====================================================================
+// NÃO ASSISTIR UMA TELA (#59): a tela vira uma barrinha e quem compartilha para de enviar o
+// vídeo para você (os dois PCs aliviam). O som da tela continua, com o volume na barrinha.
+// O app lembra a escolha durante a sessão, mesmo se a pessoa parar e voltar a compartilhar.
+// =====================================================================
+const unwatched = new Set(); // instalação (deviceId) ou ID de quem eu escolhi não assistir
+const watchKey = p => p.deviceId || p.id;
+function isUnwatched(p) { return unwatched.has(watchKey(p)); }
+function toggleWatch(id) {
+  const p = peers.get(id);
+  if (!p) return;
+  const k = watchKey(p);
+  if (unwatched.has(k)) unwatched.delete(k); else unwatched.add(k);
+  logEvent(`${isUnwatched(p) ? 'parei de assistir' : 'voltei a assistir'} a tela de ${p.name}`);
+  if (isUnwatched(p) && focusId === id) focusId = null;
+  applyFocus(); // atualiza as telas e avisa quem compartilha (screen-view)
+}
+
 function applyFocus() {
   const grid = $('grid');
   if (focusId && !tileEl(focusId)) focusId = null;
@@ -1707,6 +1783,14 @@ function applyFocus() {
   for (const t of grid.children) {
     const f = on && t.dataset.id === focusId;
     t.classList.toggle('focused', f);
+    const p = peers.get(t.dataset.id);
+    const off = !!p && isUnwatched(p);
+    t.classList.toggle('unwatched', off);
+    const w = t.querySelector('.watchBtn');
+    if (w) {
+      w.textContent = off ? '👁️ Assistir' : '🙈';
+      w.title = off ? 'Voltar a assistir esta tela' : 'Não assistir esta tela (para de receber o vídeo e alivia o PC; o som continua)';
+    }
     const b = t.querySelector('.focusBtn');
     if (b) {
       b.textContent = f ? '↩️' : '🔍';
@@ -1806,6 +1890,7 @@ let viewHidden = false, hideTimer = null;
 // O que eu quero receber da tela de p: nada (app escondido), miniatura (outra tela em foco) ou normal
 function myViewMode(p) {
   if (viewHidden && $('pauseHiddenChk').checked) return 'off';
+  if (p && isUnwatched(p)) return 'off'; // escolhi não assistir esta tela (#59)
   if (p && focusId && focusId !== p.id && $('grid').classList.contains('focus')) return 'thumb';
   return 'full';
 }
@@ -1885,7 +1970,7 @@ async function buildDiagnostics() {
     L.push(`    dados: ${p.conn.open ? 'aberto' : 'fechado'} [${await pcInfo(pcOf(p.conn))}]`);
     L.push(`    voz: [${await pcInfo(pcOf(p.micCall))}]${p.voiceStream ? '' : ' · sem áudio recebido'}`);
     if (screenStream) L.push(`    minha tela →: [${await pcInfo(pcOf(p.screenOut))}]${p.screenTries ? ` · tentativas ${p.screenTries}` : ''}${p.viewMode === 'off' ? ' · vídeo pausado (app da pessoa escondido)' : ''}`);
-    if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
+    if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${isUnwatched(p) ? ' · não estou assistindo (vídeo pausado)' : ''}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
   }
   const missing = [...roster.keys()].filter(id => !isOpen(id) && !(peers.get(id) && peers.get(id).conn));
   if (missing.length) {
@@ -1962,12 +2047,12 @@ function updateBadge() {
   if (rejoining) { cls = 'bad'; t = `Reconectando (${rejoinAttempt} de ${rejoinCfg.max})...`; }
   else if (!peer) { cls = 'off'; t = 'Desconectado'; }
   else if (peer.disconnected) { cls = 'bad'; t = n ? `Servidor caiu · reconectando (${n} ainda conectado${n > 1 ? 's' : ''})` : 'Sem servidor · reconectando...'; }
-  else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
   else if (n) {
     const bad = [...peers.values()].some(p => p.net && (p.net.cls === 'bad' || p.net.cls === 'warn'));
     cls = bad ? 'warn' : 'good';
     t = `Conectado · ${n} pessoa${n > 1 ? 's' : ''}`;
   }
+  else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
   else { cls = 'good'; t = isHost ? 'Online · aguardando pessoas' : 'Online'; }
   badge.className = 'badge ' + cls;
   text.textContent = t;
