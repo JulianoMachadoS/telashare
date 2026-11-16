@@ -46,6 +46,11 @@ já abre o app e entra na sala.
 > copie o link e cole na barra de endereço do navegador ou em **Win + R**, ou use o código da sala
 > que vai junto na mensagem.
 
+### ↩️ Voltar para a última sala
+Depois de sair de uma sala, a tela inicial mostra **"↩️ Voltar para a sala abc-123 (há 5 min)"**.
+Um clique e você está de volta. Se a sala ainda estiver aberta, você entra nela. Se todos tiverem
+saído, você a abre de novo com o mesmo código, e os outros podem voltar também.
+
 ## 🎚️ Controles
 
 ### Entrada (microfone)
@@ -314,6 +319,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 35 | **(#46)** App escondido: quem compartilha para de enviar o vídeo e aqui para de decodificar; o som da tela e a voz continuam; o vídeo volta ao reabrir; com a opção desligada, nada pausa |
 | 36 | **(#47)** Tela em foco: a destacada fica grande e as outras viram miniaturas enviadas em qualidade bem menor; trocar o foco inverte; voltar para a grade restaura; com o app escondido, nada é enviado |
 | 37 | **(#37)** Esconder a barra lateral: as telas ocupam a janela toda, a barra mínima funciona (mudo), Ctrl+B alterna e a escolha vale depois de reabrir |
+| 38 | **(#48)** "Voltar para a sala": aparece depois de sair e um clique volta; com a sala vazia, o primeiro a voltar a abre de novo e o outro entra nela |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

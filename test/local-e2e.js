@@ -774,6 +774,28 @@ app.whenReady().then(async () => {
     await js(A, 'miniShow.click(); 1');
     check('37d. (#37) A barra continua escondida depois de reabrir o app', reopened.hidden && reopened.mini && !reopened.leave, JSON.stringify(reopened));
     destroy([A]); }
+  // 38. (#48) Voltar para a última sala com um clique
+  if (want(38)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    const btn = w => js(w, '({ show: !rejoinBtn.classList.contains("hidden"), txt: rejoinBtn.textContent })');
+    const first = await btn(B);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 20000);
+    await js(B, 'leaveBtn.click(); 1'); await wait(500);
+    const after = await btn(B);
+    await js(B, 'rejoinBtn.click(); 1');
+    const back = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 30000);
+    check('38a. (#48) Depois de sair, aparece "Voltar para a sala" e um clique volta para ela (sala ainda aberta)',
+      !first.show && after.show && after.txt.includes(room) && /agora há pouco/.test(after.txt) && back && !(await js(B, 'isHost')),
+      JSON.stringify({ first, after, back }));
+    // todos saem: quem clicar primeiro abre a sala de novo, e o outro entra nela
+    await js(B, 'leaveBtn.click(); 1'); await js(A, 'leaveBtn.click(); 1'); await wait(2500);
+    await js(B, 'rejoinBtn.click(); 1');
+    await until(async () => await js(B, '!!(peer && peer.open && isHost)'), 20000);
+    await js(A, 'rejoinBtn.click(); 1');
+    const reopened = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 30000);
+    check('38b. (#48) Sala vazia: o primeiro a voltar abre a sala de novo e o outro entra nela', reopened && (await js(B, 'isHost')) && !(await js(A, 'isHost')) && !(await alerts(A)).length && !(await alerts(B)).length,
+      `A=${await count(A)} B=${await count(B)} alertas=${JSON.stringify((await alerts(A)).concat(await alerts(B)))}`);
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
