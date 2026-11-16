@@ -22,6 +22,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('native', {
   getSources: () => ipcRenderer.invoke('get-sources'),
   selectSource: (id, withAudio) => ipcRenderer.invoke('select-source', id, withAudio),
+  pcAudioStart: rate => ipcRenderer.invoke('pcaudio-start', rate),
+  pcAudioStop: () => ipcRenderer.invoke('pcaudio-stop'),
+  onPcAudioData: cb => ipcRenderer.on('pcaudio-data', (_e, d) => cb(d)),
+  onPcAudioExit: cb => ipcRenderer.on('pcaudio-exit', (_e, info) => cb(info)),
   copyText: text => ipcRenderer.invoke('copy-text', text),
   openProject: () => ipcRenderer.invoke('open-project'),
   openLicense: () => ipcRenderer.invoke('open-license'),

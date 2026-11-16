@@ -40,7 +40,26 @@ let lastCopied = '';
 ipcMain.handle('copy-text', (_e, t) => { lastCopied = String(t); return true; });
 ipcMain.handle('take-pending-invite', () => null);
 ipcMain.handle('get-sources', () => []);
-ipcMain.handle('select-source', () => true);
+const selectCalls = [];
+ipcMain.handle('select-source', (_e, id, withAudio) => { selectCalls.push({ id, withAudio }); return true; });
+// auxiliar de áudio do PC (#35): por padrão indisponível; o teste 41 simula o auxiliar
+let pcAudioMode = 'off';
+const pcAudioCalls = [];
+let pcAudioTimer = null;
+ipcMain.handle('pcaudio-start', (e, rate) => {
+  pcAudioCalls.push('start');
+  if (pcAudioMode === 'error') return { ok: false, error: 'activate-result 0x80070005' };
+  if (pcAudioMode !== 'ok') return { ok: false, error: 'só no Windows' };
+  const wc = e.sender; let t = 0; rate = Math.round(rate);
+  clearInterval(pcAudioTimer);
+  pcAudioTimer = setInterval(() => {   // tom de 440 Hz, como se viesse do telashare-audio.exe
+    const frames = Math.round(rate * 0.02), b = Buffer.alloc(frames * 4);
+    for (let i = 0; i < frames; i++, t++) { const v = Math.round(Math.sin(2 * Math.PI * 440 * t / rate) * 12000); b.writeInt16LE(v, i * 4); b.writeInt16LE(v, i * 4 + 2); }
+    if (!wc.isDestroyed()) wc.send('pcaudio-data', b);
+  }, 20);
+  return { ok: true, rate, channels: 2 };
+});
+ipcMain.handle('pcaudio-stop', () => { pcAudioCalls.push('stop'); clearInterval(pcAudioTimer); return true; });
 ipcMain.handle('get-version', () => '0.0.0-teste');
 ipcMain.handle('open-project', () => true);
 ipcMain.handle('open-license', () => true);
@@ -838,21 +857,91 @@ app.whenReady().then(async () => {
       currentQuality = QUALITY['1080_30']; screenStream = c.captureStream(10); for (const p of peers.values()) callScreen(p.id); return 1; })()`);
     await until(async () => (await js(B, '[...peers.values()][0].screenOut.peerConnection.connectionState')) === 'connected', 20000);
     await wait(1500);
+    // Como no app: o estado (p.viewMode / p.sendLevel) muda junto com o pedido. A qualidade
+    // adaptativa também pode aplicar o nível dela durante a espera; o que importa é que o
+    // resultado final bata com o estado que o app quer AGORA (nenhuma mudança se perde).
     const rapid = last => js(B, `(async () => { const p = [...peers.values()][0]; const pc = p.screenOut.peerConnection;
-      p.viewMode = 'full'; const modes = ['thumb', 'off', 'full', 'thumb'];
-      for (let i = 0; i < 24; i++) applyEncoding(pc, i % 3, modes[i % 4]);
-      applyEncoding(pc, ${last.level}, '${last.mode}');
+      const modes = ['thumb', 'off', 'full', 'thumb'];
+      for (let i = 0; i < 24; i++) { p.viewMode = modes[i % 4]; p.sendLevel = i % 3; applyEncoding(pc, p.sendLevel, p.viewMode); }
+      p.viewMode = '${last.mode}'; p.sendLevel = ${last.level};
+      applyEncoding(pc, p.sendLevel, p.viewMode);
       await new Promise(r => setTimeout(r, 1500));
       const e = pc.getSenders().find(s => s.track && s.track.kind === 'video').getParameters().encodings[0];
-      return { active: e.active !== false, scale: e.scaleResolutionDownBy, br: e.maxBitrate, fps: e.maxFramerate }; })()`);
+      const L = ADAPT_LEVELS[p.sendLevel];
+      const want = p.viewMode === 'thumb' ? { active: true, scale: Math.max(THUMB.scale, L.scale), br: THUMB.bitrate, fps: THUMB.fps }
+        : { active: p.viewMode !== 'off', scale: L.scale, br: Math.round(currentQuality.bitrate * L.br), fps: currentQuality.fps };
+      const got = { active: e.active !== false, scale: e.scaleResolutionDownBy, br: e.maxBitrate, fps: e.maxFramerate };
+      return { got, want, ok: got.active === want.active && (!want.active || (got.scale === want.scale && got.br === want.br && got.fps === want.fps)) }; })()`);
     const r1 = await rapid({ level: 0, mode: 'full' });
     const r2 = await rapid({ level: 1, mode: 'thumb' });
     const r3 = await rapid({ level: 0, mode: 'off' });
-    check('40. (#55) 25 mudanças seguidas de qualidade: a última pedida é a que fica valendo',
-      r1.active && r1.scale === 1 && r1.br === 4500000 && r1.fps === 30 &&
-      r2.active && r2.scale === 4 && r2.br === 300000 && r2.fps === 10 &&
-      !r3.active, JSON.stringify({ r1, r2, r3 }));
+    check('40. (#55) 25 mudanças seguidas de qualidade: o resultado final é o que o app quer (nenhuma se perde)',
+      r1.ok && r2.ok && r3.ok && r2.got.scale === 4 && !r3.got.active, JSON.stringify({ r1, r2, r3 }));
     destroy([A, B]); }
+  // 41. (#35) Áudio do PC sem as vozes da sala, pelo auxiliar nativo (Windows).
+  //     O auxiliar real (telashare-audio.exe) só roda no Windows; aqui ele é FALSO:
+  //     a) o módulo pc-audio.js com um auxiliar falso (Node), b/c) o app com o áudio simulado.
+  if (want(41)) {
+    const pcAudio = require(path.join(APP, 'pc-audio.js'));
+    const fake = path.join(__dirname, 'fixtures', 'fake-audio-helper.js');
+    const env = Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' });
+    let bytes = 0, aligned = true, exited = null;
+    const r = await pcAudio.start({ exe: process.execPath, args: [fake], env, pid: 1234, rate: 48000,
+      onData: c => { bytes += c.length; if (c.length % 4) aligned = false; }, onExit: i => { exited = i; } });
+    await wait(600);
+    const wasRunning = pcAudio.running();
+    pcAudio.stop();
+    await until(async () => exited !== null, 5000);
+    const bad = await pcAudio.start({ exe: process.execPath, args: [fake], env: Object.assign({}, env, { FAKE_MODE: 'error' }), pid: 1, rate: 48000 });
+    const missing = await pcAudio.start({ exe: path.join(APP, 'nao-existe.exe'), pid: 1, rate: 48000 });
+    check('41a. (#35) Módulo do auxiliar: inicia, recebe áudio em quadros inteiros, para ao fechar e informa erros',
+      r.ok && r.rate === 48000 && wasRunning && bytes > 10000 && aligned && exited && !pcAudio.running() &&
+      !bad.ok && /activate-result 0x80070005/.test(bad.error) && !missing.ok,
+      JSON.stringify({ r, bytes, aligned, exited, bad, missing }));
+
+    // b) o app usa o auxiliar: a tela vai com o tom do auxiliar e SEM a captura antiga do Chromium
+    pcAudioMode = 'ok'; pcAudioCalls.length = 0; selectCalls.length = 0;
+    const A = mk(); await ready([A]);
+    const share = () => js(A, `(async () => {
+      canUsePcAudioHelper = () => true;            // simula o Windows
+      openPicker = async () => 'tela-falsa';
+      shareAudioChk.checked = true;
+      window.__gdm = null;
+      navigator.mediaDevices.getDisplayMedia = async opts => {
+        window.__gdm = JSON.parse(JSON.stringify(opts));
+        const c = document.createElement('canvas'); c.width = 320; c.height = 180; c.getContext('2d').fillRect(0, 0, 320, 180);
+        const tracks = [c.captureStream(5).getVideoTracks()[0]];
+        if (opts.audio) { const o = audioCtx.createOscillator(); const d = audioCtx.createMediaStreamDestination(); o.connect(d); o.start(); tracks.push(d.stream.getAudioTracks()[0]); }
+        return new MediaStream(tracks);
+      };
+      toastLog.length = 0;
+      await startShare();
+      await new Promise(r => setTimeout(r, 1500));
+      // mede o que sai na faixa de áudio da tela: precisa ser o tom de 440 Hz do auxiliar
+      const t = screenStream.getAudioTracks()[0];
+      const an = audioCtx.createAnalyser(); an.fftSize = 8192;
+      audioCtx.createMediaStreamSource(new MediaStream([t])).connect(an);
+      await new Promise(r => setTimeout(r, 600));
+      const f = new Float32Array(an.frequencyBinCount); an.getFloatFrequencyData(f);
+      const bin = hz => Math.round(hz / (audioCtx.sampleRate / an.fftSize));
+      const r = { pedidoAudio: window.__gdm && window.__gdm.audio, separado: screenAudioExcludesSelf, auxiliar: !!pcmNode,
+        faixas: screenStream.getAudioTracks().length, db440: f[bin(440)], db2000: f[bin(2000)], toasts: toastLog.slice() };
+      stopShare();
+      return r; })()`);
+    const ok = await share();
+    await wait(300);
+    check('41b. (#35) No Windows, o áudio da tela vem do auxiliar (sem as vozes da sala) e a captura antiga não é usada',
+      ok.pedidoAudio === false && selectCalls.length === 1 && selectCalls[0].withAudio === false && ok.separado === true && ok.auxiliar &&
+      ok.faixas === 1 && ok.db440 > ok.db2000 + 30 && !ok.toasts.some(t => /não conseguiu separar/.test(t)) && pcAudioCalls.join() === 'start,stop',
+      JSON.stringify({ ok, selectCalls, pcAudioCalls }));
+    // c) auxiliar falha (ex.: Windows antigo): volta para a captura antiga e avisa com o motivo
+    pcAudioMode = 'error'; pcAudioCalls.length = 0; selectCalls.length = 0;
+    const fb = await share();
+    check('41c. (#35) Se o auxiliar falhar, usa a captura antiga e avisa o motivo', fb.pedidoAudio && fb.pedidoAudio.restrictOwnAudio === true &&
+      selectCalls[0].withAudio === true && !fb.auxiliar && fb.toasts.some(t => /não conseguiu separar/.test(t) && /Motivo: activate-result/.test(t)),
+      JSON.stringify({ fb, selectCalls }));
+    pcAudioMode = 'off';
+    destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

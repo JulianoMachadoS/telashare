@@ -19,6 +19,7 @@
 
 const { app, BrowserWindow, session, desktopCapturer, ipcMain, clipboard, shell, net, screen } = require('electron');
 const windowState = require('./window-state');
+const pcAudio = require('./pc-audio');
 const path = require('path');
 const fs = require('fs');
 
@@ -89,6 +90,11 @@ function setupAutoUpdater() {
   setTimeout(check, 5000);
   setInterval(check, UPDATE_EVERY_MS);
 }
+
+// Auxiliar nativo que captura o som do PC sem o som do TelaShare (#35). Só no Windows.
+const PC_AUDIO_EXE = app.isPackaged
+  ? path.join(process.resourcesPath, 'telashare-audio.exe')
+  : path.join(__dirname, 'native', 'bin', 'telashare-audio.exe');
 
 let win;
 let chosenSourceId = null;
@@ -208,6 +214,21 @@ app.whenReady().then(() => {
       .map(s => ({ id: s.id, name: s.name, thumb: s.thumbnail.toDataURL() }));
   });
 
+  // Áudio do PC pelo auxiliar: o PCM chega aqui e vai para a página, que toca e envia
+  ipcMain.handle('pcaudio-start', async (e, rate) => {
+    if (process.platform !== 'win32') return { ok: false, error: 'só no Windows' };
+    pcAudio.stop();
+    const wc = e.sender;
+    return pcAudio.start({
+      exe: PC_AUDIO_EXE,
+      pid: process.pid, // o TelaShare inteiro (este processo e os filhos) fica de fora da captura
+      rate: Math.round(rate) || 48000,
+      onData: chunk => { if (!wc.isDestroyed()) wc.send('pcaudio-data', chunk); },
+      onExit: info => { if (!wc.isDestroyed()) wc.send('pcaudio-exit', info); }
+    });
+  });
+  ipcMain.handle('pcaudio-stop', () => { pcAudio.stop(); return true; });
+
   ipcMain.handle('select-source', (_e, id, withAudio) => {
     chosenSourceId = id;
     chosenWithAudio = !!withAudio;
@@ -277,3 +298,4 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('will-quit', () => pcAudio.stop());

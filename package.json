@@ -1,7 +1,7 @@
 {
   "name": "telashare",
   "productName": "TelaShare",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "description": "TelaShare - compartilhamento de tela com áudio",
   "main": "main.js",
   "author": "Juliano Machado da Silva (https://github.com/JulianoMachadoS)",
@@ -30,6 +30,8 @@
     "files": [
       "main.js",
       "window-state.js",
+      "pcm-worklet.js",
+      "pc-audio.js",
       "preload.js",
       "index.html",
       "renderer.js",
@@ -80,6 +82,12 @@
         "owner": "JulianoMachadoS",
         "repo": "telashare",
         "releaseType": "release"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "native/bin/telashare-audio.exe",
+        "to": "telashare-audio.exe"
       }
     ]
   }
