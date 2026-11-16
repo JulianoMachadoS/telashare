@@ -71,6 +71,7 @@ já abre o app e entra na sala.
 | **🔊 na barra de cada tela** | 0 a **400%** para o áudio de cada tela recebida |
 | **Sons de aviso** | Bipes curtos quando alguém entra, sai, compartilha a tela, quando você muta, quando a conexão cai e quando volta. Com volume próprio |
 | **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
+| **Pausar o vídeo das telas com o app escondido** | Com o TelaShare minimizado ou coberto por outra janela (ex.: jogo em tela cheia) por mais de 2 s, quem compartilha **para de enviar o vídeo** para você. O seu PC não decodifica e o de quem compartilha não codifica aquele vídeo. **O som da tela e as vozes continuam.** Ao voltar para o app, o vídeo volta em ~1 s. Ligado por padrão |
 
 **Microfone ou fone desconectado:** o app troca sozinho para o dispositivo padrão e avisa. Quando o
 seu dispositivo preferido volta, ele volta a usar esse.
@@ -308,6 +309,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 32 | **(#34)** "Copiar diagnóstico": mostra cada ligação (dados e voz, com o tipo de conexão), quem está na sala sem ligação e os últimos eventos, sem endereços IP |
 | 33 | **(#44)** Atualização automática na versão instalada: progresso do download, "Reiniciar e atualizar" (pergunta antes de sair da sala), mensagens de versão mais recente e de erro (o electron-updater é simulado) |
 | 34 | **(#44)** Configuração do pacote: instalador NSIS + portátil, publicação no GitHub e atualizador só na versão instalada |
+| 35 | **(#46)** App escondido: quem compartilha para de enviar o vídeo e aqui para de decodificar; o som da tela e a voz continuam; o vídeo volta ao reabrir; com a opção desligada, nada pausa |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

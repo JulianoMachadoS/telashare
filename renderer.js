@@ -970,6 +970,7 @@ function setupConn(conn, outgoing) {
     p.lastSeen = Date.now();
     everConnected = true;
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
+    if (myViewMode() !== 'full') conn.send({ type: 'screen-view', mode: myViewMode() });
     if (rejoining) rejoinSucceeded();
 
     if (isHost) {
@@ -1043,6 +1044,14 @@ function setupConn(conn, outgoing) {
         break;
       case 'screen-start':
         if (!p.sharing) { p.sharing = true; p.screenWaitSince = Date.now(); p.screenReqs = 0; p.screenInWarned = false; }
+        if (myViewMode() !== 'full') sendViewMode(p);
+        break;
+      case 'screen-view':
+        // quem assiste avisou se quer o vídeo da minha tela (app dele visível ou não)
+        p.viewMode = msg.mode === 'off' ? 'off' : 'full';
+        if (p.screenOut && p.screenOut.peerConnection && p.screenOut.peerConnection.connectionState === 'connected') {
+          applyEncoding(p.screenOut.peerConnection, p.sendLevel || 0, p.viewMode);
+        }
         break;
       case 'screen-request':
         // quem assiste não recebeu a tela: refaz a chamada (no máximo uma a cada 3 s)
@@ -1166,12 +1175,15 @@ const ADAPT_LEVELS = [
   { scale: 2,   br: 0.3,  label: 'baixa' }
 ];
 
-function applyEncoding(pc, level) {
+// mode: o que quem assiste pediu ('full' = normal, 'off' = app dele escondido: não envia vídeo)
+function applyEncoding(pc, level, mode = 'full') {
   const L = ADAPT_LEVELS[level];
   pc.getSenders().forEach(s => {
     if (!s.track || s.track.kind !== 'video') return;
     const params = s.getParameters();
     if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    // vídeo pausado para quem não está olhando: não codifica nem envia (o áudio da tela continua)
+    params.encodings[0].active = mode !== 'off';
     params.encodings[0].maxBitrate = Math.round(currentQuality.bitrate * L.br);
     params.encodings[0].maxFramerate = currentQuality.fps;
     params.encodings[0].scaleResolutionDownBy = L.scale;
@@ -1223,7 +1235,8 @@ function callScreen(id) {
       return;
     }
     if (pc.connectionState === 'connected') {
-      if (!started) { started = true; p.screenTries = 0; p.screenWarned = false; applyEncoding(pc, p.sendLevel); }
+      if (!started) { started = true; p.screenTries = 0; p.screenWarned = false; applyEncoding(pc, p.sendLevel, p.viewMode); }
+      if (p.viewMode === 'off') { setTimeout(loop, 2000); return; } // pausado: nada para adaptar
       try {
         const stats = await pc.getStats();
         let lost = 0, sent = 0, avail = null;
@@ -1242,9 +1255,9 @@ function callScreen(id) {
         bad = isBad ? bad + 1 : 0;
         good = isGood ? good + 1 : 0;
         if (bad >= 2 && p.sendLevel < ADAPT_LEVELS.length - 1) {
-          p.sendLevel++; bad = 0; applyEncoding(pc, p.sendLevel); paintSendQuality();
+          p.sendLevel++; bad = 0; applyEncoding(pc, p.sendLevel, p.viewMode); paintSendQuality();
         } else if (good >= 5 && p.sendLevel > 0) {
-          p.sendLevel--; good = 0; applyEncoding(pc, p.sendLevel); paintSendQuality();
+          p.sendLevel--; good = 0; applyEncoding(pc, p.sendLevel, p.viewMode); paintSendQuality();
         }
       } catch (e) { console.warn('adapt', e); }
     }
@@ -1592,6 +1605,36 @@ function renderPeers() {
 }
 
 // =====================================================================
+// VÍDEO PAUSADO COM O APP ESCONDIDO (#46)
+// Com o TelaShare minimizado ou coberto (ex.: jogo em tela cheia), ninguém está olhando as telas.
+// Avisamos quem compartilha para PARAR de enviar o vídeo para nós: aqui não decodifica e lá não
+// codifica, aliviando os dois PCs. O áudio da tela e as vozes continuam normalmente.
+// =====================================================================
+const HIDE_PAUSE_DELAY_MS = 2000; // evita pausar numa troca rápida de janela (Alt+Tab)
+let viewHidden = false, hideTimer = null;
+function myViewMode() { return viewHidden && $('pauseHiddenChk').checked ? 'off' : 'full'; }
+function sendViewMode(p) {
+  if (p.conn && p.conn.open) { try { p.conn.send({ type: 'screen-view', mode: myViewMode() }); } catch {} }
+}
+function broadcastViewMode() {
+  for (const p of peers.values()) sendViewMode(p);
+}
+function onVisibilityChange() {
+  clearTimeout(hideTimer);
+  if (document.visibilityState === 'hidden') {
+    hideTimer = setTimeout(() => {
+      viewHidden = true;
+      if (myViewMode() === 'off') logEvent('app escondido: vídeo das telas pausado (o som continua)');
+      broadcastViewMode();
+    }, HIDE_PAUSE_DELAY_MS);
+  } else if (viewHidden) {
+    viewHidden = false;
+    logEvent('app visível: vídeo das telas retomado');
+    broadcastViewMode();
+  }
+}
+
+// =====================================================================
 // DIAGNÓSTICO (#34): "🩺 Copiar diagnóstico" gera um texto com o estado de cada ligação e os
 // últimos eventos, para relatar problemas de testes reais (ex.: "B não vê a tela de C").
 // Não inclui endereços IP: só o tipo de cada conexão (host / srflx / relay).
@@ -1631,6 +1674,7 @@ async function buildDiagnostics() {
   const sharing = !screenStream ? 'não' : screenStream.getAudioTracks().length
     ? `sim, com áudio do PC (sem as vozes da sala: ${screenAudioExcludesSelf ? 'sim' : 'NÃO'})` : 'sim, sem áudio';
   L.push(`Microfone: ${micMuted ? 'mudo' : 'ligado'} · Compartilhando a tela: ${sharing}`);
+  L.push(`App visível: ${viewHidden ? 'não' : 'sim'} · Vídeo das telas que recebo: ${myViewMode() === 'off' ? 'pausado (app escondido)' : 'normal'}`);
   L.push('');
   L.push('Ligações (dados | voz | minha tela → | ← tela da pessoa):');
   const linked = [...peers.values()].filter(p => p.conn);
@@ -1639,7 +1683,7 @@ async function buildDiagnostics() {
     L.push(`- ${displayName(p)} (${shortId(p.id)})${p.muted ? ' · mudo' : ''}${p.sharing ? ' · compartilhando' : ''}`);
     L.push(`    dados: ${p.conn.open ? 'aberto' : 'fechado'} [${await pcInfo(pcOf(p.conn))}]`);
     L.push(`    voz: [${await pcInfo(pcOf(p.micCall))}]${p.voiceStream ? '' : ' · sem áudio recebido'}`);
-    if (screenStream) L.push(`    minha tela →: [${await pcInfo(pcOf(p.screenOut))}]${p.screenTries ? ` · tentativas ${p.screenTries}` : ''}`);
+    if (screenStream) L.push(`    minha tela →: [${await pcInfo(pcOf(p.screenOut))}]${p.screenTries ? ` · tentativas ${p.screenTries}` : ''}${p.viewMode === 'off' ? ' · vídeo pausado (app da pessoa escondido)' : ''}`);
     if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
   }
   const missing = [...roster.keys()].filter(id => !isOpen(id) && !(peers.get(id) && peers.get(id).conn));
@@ -1988,6 +2032,9 @@ async function init() {
   $('leaveBtn').onclick = leaveRoom;
   $('inviteBtn').onclick = copyInvite;
   $('diagBtn').onclick = copyDiagnostics;
+  $('pauseHiddenChk').checked = store.get('pauseHidden', true);
+  $('pauseHiddenChk').onchange = () => { store.set('pauseHidden', $('pauseHiddenChk').checked); broadcastViewMode(); };
+  document.addEventListener('visibilitychange', onVisibilityChange);
   $('projectLink').onclick = e => { e.preventDefault(); window.native.openProject && window.native.openProject(); };
   initAbout();
   initUpdates();
