@@ -167,6 +167,10 @@ button.active { background: #248046; }
 .icon-btn:hover { border-color: #fff; color: #fff; }
 .icon-btn.plain { font: 12px system-ui, sans-serif; line-height: 22px; }
 
+/* Reentrar na última sala (#48) */
+button.rejoin { width: 100%; margin: 0 0 8px; background: #23a55a; color: #fff; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.rejoin:hover { background: #1f8f4e; }
+
 /* Barra lateral escondida (#37): a área das telas ocupa a janela toda */
 body.sidebar-hidden #sidebar { display: none; }
 #miniBar {

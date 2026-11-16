@@ -611,6 +611,7 @@ const SIGNAL_MAX_ATTEMPTS = 8;
 
 function enterRoom(room) {
   logEvent(`entrei na sala ${room}${isHost ? ' como anfitrião' : ''}`);
+  store.set('lastRoom', { room, at: Date.now() });
   roomCode = room;
   leaving = false;
   const me = peer; // os eventos abaixo só valem para ESTA conexão (a reconexão cria outra)
@@ -702,6 +703,34 @@ function leaveRoom() {
   $('shareBtn').disabled = true;
   lockForm(false);
   renderPeers();
+  paintRejoin();
+}
+
+// =====================================================================
+// REENTRAR NA ÚLTIMA SALA (#48): um clique para voltar. Usa "Criar sala", que entra na sala se
+// ela ainda estiver aberta (#32) ou a abre de novo se todos tiverem saído.
+// =====================================================================
+function agoText(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'agora há pouco';
+  if (m < 60) return `há ${m} min`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `há ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'ontem' : `há ${d} dias`;
+}
+function paintRejoin() {
+  const last = store.get('lastRoom', null);
+  const b = $('rejoinBtn');
+  const ok = last && typeof last.room === 'string' && sanitizeRoom(last.room) === last.room && last.room;
+  b.classList.toggle('hidden', !ok || !!peer);
+  if (ok) b.textContent = `↩️ Voltar para a sala ${last.room} (${agoText(Date.now() - (last.at || 0))})`;
+}
+function rejoinLast() {
+  const last = store.get('lastRoom', null);
+  if (!last || !last.room) return;
+  $('roomInput').value = last.room;
+  hostRoom();
 }
 
 // =====================================================================
@@ -781,7 +810,7 @@ function rejoinSucceeded() {
 }
 
 function lockForm(lock) {
-  ['hostBtn', 'joinBtn', 'nameInput', 'roomInput'].forEach(id => ($(id).disabled = lock));
+  ['hostBtn', 'joinBtn', 'nameInput', 'roomInput', 'rejoinBtn'].forEach(id => ($(id).disabled = lock));
 }
 
 function setStatus(t) { $('status').textContent = t; if ($('connBadge')) updateBadge(); }
@@ -2126,6 +2155,8 @@ async function init() {
   $('leaveBtn').onclick = leaveRoom;
   $('inviteBtn').onclick = copyInvite;
   $('diagBtn').onclick = copyDiagnostics;
+  $('rejoinBtn').onclick = rejoinLast;
+  paintRejoin();
   initSidebarToggle();
   $('pauseHiddenChk').checked = store.get('pauseHidden', true);
   $('pauseHiddenChk').onchange = () => { store.set('pauseHidden', $('pauseHiddenChk').checked); broadcastViewMode(); };
