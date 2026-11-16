@@ -71,6 +71,7 @@ já abre o app e entra na sala.
 | **🔊 na barra de cada tela** | 0 a **400%** para o áudio de cada tela recebida |
 | **Sons de aviso** | Bipes curtos quando alguém entra, sai, compartilha a tela, quando você muta, quando a conexão cai e quando volta. Com volume próprio |
 | **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
+| **🔍 Tela em foco** | Clique numa tela (ou no 🔍) para deixá-la grande. As outras viram miniaturas à direita e chegam em **qualidade bem menor** (1/4 da resolução, 10 fps), o que alivia o seu PC e o de quem compartilha. Clique de novo (ou no ↩️) para voltar à grade. Duplo clique continua abrindo em tela cheia |
 | **Pausar o vídeo das telas com o app escondido** | Com o TelaShare minimizado ou coberto por outra janela (ex.: jogo em tela cheia) por mais de 2 s, quem compartilha **para de enviar o vídeo** para você. O seu PC não decodifica e o de quem compartilha não codifica aquele vídeo. **O som da tela e as vozes continuam.** Ao voltar para o app, o vídeo volta em ~1 s. Ligado por padrão |
 
 **Microfone ou fone desconectado:** o app troca sozinho para o dispositivo padrão e avisa. Quando o
@@ -310,6 +311,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 33 | **(#44)** Atualização automática na versão instalada: progresso do download, "Reiniciar e atualizar" (pergunta antes de sair da sala), mensagens de versão mais recente e de erro (o electron-updater é simulado) |
 | 34 | **(#44)** Configuração do pacote: instalador NSIS + portátil, publicação no GitHub e atualizador só na versão instalada |
 | 35 | **(#46)** App escondido: quem compartilha para de enviar o vídeo e aqui para de decodificar; o som da tela e a voz continuam; o vídeo volta ao reabrir; com a opção desligada, nada pausa |
+| 36 | **(#47)** Tela em foco: a destacada fica grande e as outras viram miniaturas enviadas em qualidade bem menor; trocar o foco inverte; voltar para a grade restaura; com o app escondido, nada é enviado |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

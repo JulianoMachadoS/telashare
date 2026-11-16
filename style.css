@@ -109,6 +109,16 @@ button.muted { background: #da373c; }
 .source:hover { border-color: #5865f2; }
 .source img { width: 100%; display: block; border-radius: 4px; background: #000; }
 .source span { display: block; font-size: 12px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Tela em foco (#47): uma grande à esquerda, miniaturas numa coluna à direita */
+#grid.focus { grid-template-columns: minmax(0, 1fr) 240px; align-items: start; }
+#grid.focus .tile.focused { grid-column: 1; grid-row: 1 / span 20; }
+#grid.focus .tile:not(.focused) { grid-column: 2; }
+#grid.focus .tile:not(.focused) .bar { gap: 6px; padding: 4px 6px; font-size: 12px; }
+#grid.focus .tile:not(.focused) .bar input[type=range],
+#grid.focus .tile:not(.focused) .bar .pct,
+#grid.focus .tile:not(.focused) .bar .q,
+#grid.focus .tile:not(.focused) .bar button:not(.focusBtn) { display: none; }
+.tile video { cursor: pointer; }
 .tile:fullscreen { display: flex; flex-direction: column; border-radius: 0; }
 .tile:fullscreen video { flex: 1; aspect-ratio: auto; height: 0; }
 details { margin-top: 10px; font-size: 13px; }
