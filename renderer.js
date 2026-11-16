@@ -1208,20 +1208,44 @@ const ADAPT_LEVELS = [
 const THUMB = { scale: 4, bitrate: 300000, fps: 10 };
 // mode: o que quem assiste pediu ('full' = normal, 'thumb' = miniatura, 'off' = app dele escondido)
 function applyEncoding(pc, level, mode = 'full') {
-  const L = ADAPT_LEVELS[level];
   pc.getSenders().forEach(s => {
     if (!s.track || s.track.kind !== 'video') return;
-    const params = s.getParameters();
-    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
-    // vídeo pausado para quem não está olhando: não codifica nem envia (o áudio da tela continua)
-    params.encodings[0].active = mode !== 'off';
-    const thumb = mode === 'thumb';
-    params.encodings[0].maxBitrate = Math.round(thumb ? Math.min(THUMB.bitrate, currentQuality.bitrate * L.br) : currentQuality.bitrate * L.br);
-    params.encodings[0].maxFramerate = thumb ? Math.min(THUMB.fps, currentQuality.fps) : currentQuality.fps;
-    params.encodings[0].scaleResolutionDownBy = thumb ? Math.max(THUMB.scale, L.scale) : L.scale;
-    params.degradationPreference = currentQuality.fps >= 60 ? 'maintain-framerate' : 'balanced';
-    s.setParameters(params).catch(e => console.warn('setParameters', e));
+    // Fila por sender (#55): setParameters é assíncrono e duas alterações ao mesmo tempo
+    // (foco, pausa, qualidade adaptativa) podem colidir e uma ser rejeitada. Guardamos só o
+    // ÚLTIMO pedido e aplicamos um de cada vez, sempre com os parâmetros mais recentes.
+    s._want = { level, mode };
+    if (s._applying) return; // a aplicação em andamento pega este pedido em seguida
+    s._applying = true;
+    (async () => {
+      let fails = 0;
+      while (s._want) {
+        const w = s._want;
+        s._want = null;
+        try {
+          await s.setParameters(encodingParams(s, w.level, w.mode));
+          fails = 0;
+        } catch (e) {
+          console.warn('setParameters', e);
+          if (++fails <= 2 && !s._want) s._want = w; // tenta de novo (a conexão pode ter fechado)
+        }
+      }
+      s._applying = false;
+    })();
   });
+}
+
+function encodingParams(s, level, mode) {
+  const L = ADAPT_LEVELS[level] || ADAPT_LEVELS[0];
+  const params = s.getParameters();
+  if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+  // vídeo pausado para quem não está olhando: não codifica nem envia (o áudio da tela continua)
+  params.encodings[0].active = mode !== 'off';
+  const thumb = mode === 'thumb';
+  params.encodings[0].maxBitrate = Math.round(thumb ? Math.min(THUMB.bitrate, currentQuality.bitrate * L.br) : currentQuality.bitrate * L.br);
+  params.encodings[0].maxFramerate = thumb ? Math.min(THUMB.fps, currentQuality.fps) : currentQuality.fps;
+  params.encodings[0].scaleResolutionDownBy = thumb ? Math.max(THUMB.scale, L.scale) : L.scale;
+  params.degradationPreference = currentQuality.fps >= 60 ? 'maintain-framerate' : 'balanced';
+  return params;
 }
 
 // A chamada da tela é uma conexão separada da voz. Se ela não conecta ou cai, quem compartilha
