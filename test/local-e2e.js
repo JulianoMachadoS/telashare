@@ -925,6 +925,22 @@ app.whenReady().then(async () => {
     const back = await until(async () => (await active()) === true, 8000) && await until(async () => (await delta(1000)).v > 3, 8000);
     check('44c. (#59) "Assistir" traz o vídeo de volta', back && !(await js(A, `tileEl('${bId}').classList.contains('unwatched')`)));
     destroy([A, B]); }
+  // 45. (#61) Sair no meio de uma tentativa de entrar e depois criar uma sala: o selo não pode
+  //     ficar preso em "Conectando à sala..." com o amigo já conectado
+  if (want(45)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await join(A, rid(), 'Host');            // tenta entrar numa sala que não existe...
+    await until(async () => await js(A, '!!joinTarget'), 10000);
+    await wait(1500);
+    await js(A, 'leaveBtn.click(); 1');      // ...e desiste no meio
+    await wait(800);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 20000);
+    await wait(1500);
+    const badge = await js(A, 'connText.textContent');
+    const late = await alerts(A);
+    check('45. (#61) Depois de desistir de entrar e criar a sala, o selo mostra "Conectado" com o amigo na sala',
+      /^Conectado · 1 pessoa$/.test(badge) && !(await js(A, '!!joinTarget')) && !late.length, JSON.stringify({ badge, alertas: late }));
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

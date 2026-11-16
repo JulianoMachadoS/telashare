@@ -334,6 +334,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 42 | **(#57)** A chamada de voz trava (nunca é atendida): quem liga refaz, ou quem recebe pede de novo, até o áudio chegar nos dois lados |
 | 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
 | 44 | **(#59)** "Não assistir": a tela vira barrinha, o vídeo para de vir e o som continua; a escolha vale quando a pessoa volta a compartilhar; "Assistir" traz o vídeo de volta |
+| 45 | **(#61)** Desistir de entrar numa sala e depois criar outra: com o amigo conectado, o selo mostra "Conectado" (antes ficava preso em "Conectando à sala...") |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
