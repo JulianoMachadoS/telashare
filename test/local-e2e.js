@@ -796,6 +796,39 @@ app.whenReady().then(async () => {
     check('38b. (#48) Sala vazia: o primeiro a voltar abre a sala de novo e o outro entra nela', reopened && (await js(B, 'isHost')) && !(await js(A, 'isHost')) && !(await alerts(A)).length && !(await alerts(B)).length,
       `A=${await count(A)} B=${await count(B)} alertas=${JSON.stringify((await alerts(A)).concat(await alerts(B)))}`);
     destroy([A, B]); }
+  // 39. (#49) Lembrar tamanho e posição da janela (módulo window-state.js do app)
+  if (want(39)) {
+    const ws = require(path.join(APP, 'window-state.js'));
+    const os = require('os'), fs = require('fs');
+    const one = [{ workArea: { x: 0, y: 0, width: 1920, height: 1040 } }];
+    const two = one.concat([{ workArea: { x: 1920, y: 0, width: 1920, height: 1040 } }]);
+    const d0 = ws.fit(null, one);
+    const keep = ws.fit({ x: 2100, y: 80, width: 1400, height: 900, maximized: true }, two);
+    const gone = ws.fit({ x: 2100, y: 80, width: 1400, height: 900 }, one); // o 2º monitor foi desconectado
+    const tiny = ws.fit({ x: 10, y: 10, width: 300, height: 200 }, one);
+    const huge = ws.fit({ x: 0, y: 0, width: 5000, height: 4000 }, one);
+    check('39a. (#49) Restaura posição e tamanho; monitor desconectado abre centralizado; respeita mínimo e tamanho da tela',
+      d0.width === 1280 && d0.height === 800 && d0.x === undefined &&
+      keep.x === 2100 && keep.y === 80 && keep.width === 1400 && keep.maximized === true &&
+      gone.x === undefined && gone.width === 1400 &&
+      tiny.width === 900 && tiny.height === 600 && huge.width === 1920 && huge.height === 1040,
+      JSON.stringify({ d0, keep, gone, tiny, huge }));
+    // salva de verdade quando a janela muda e ao fechar
+    const file = path.join(os.tmpdir(), 'telashare-teste-' + Date.now(), 'window-state.json');
+    const w = new BrowserWindow({ show: false, width: 1000, height: 700, x: 120, y: 90 });
+    ws.track(w, file);
+    w.setBounds({ x: 150, y: 110, width: 1100, height: 750 });
+    await wait(1200);
+    const saved = ws.load(file);
+    w.setBounds({ x: 160, y: 120, width: 1050, height: 720 });
+    w.close(); await wait(300);
+    const onClose = ws.load(file);
+    check('39b. (#49) Salva o tamanho e a posição quando a janela muda e ao fechar',
+      saved && saved.width === 1100 && saved.height === 750 && saved.x === 150 &&
+      onClose && onClose.width === 1050 && onClose.x === 160 && onClose.maximized === false,
+      JSON.stringify({ saved, onClose }));
+    try { fs.rmSync(path.dirname(file), { recursive: true, force: true }); } catch {}
+  }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
