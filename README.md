@@ -158,6 +158,10 @@ várias vezes e, depois de ~20 s, avisa: "⚠️ Sem conexão direta com Fulano"
 **Participantes** com ⚠️. O app continua tentando a cada 1 minuto, e se a rede liberar, conecta sozinho.
 Para resolver de vez, use um servidor **TURN** em "Avançado" ou uma **VPN** (veja abaixo).
 
+**A voz também vai por uma conexão própria.** Se ela não conectar em ~12 s (os nomes aparecem,
+mas fica "Conectando..." e não há som), o app refaz a chamada sozinho. Se desistir depois de algumas
+tentativas, avisa: "⚠️ Sem áudio com Fulano".
+
 **A tela vai por uma conexão separada da voz.** Se ela não conecta ou cai, quem compartilha refaz a
 chamada sozinho, e quem assiste pede de novo se a tela não chegar. Se mesmo assim não chegar, os dois
 recebem o aviso "⚠️ A tela de Fulano não está chegando".
@@ -326,6 +330,8 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 38 | **(#48)** "Voltar para a sala": aparece depois de sair e um clique volta; com a sala vazia, o primeiro a voltar a abre de novo e o outro entra nela |
 | 39 | **(#49)** Tamanho e posição da janela: restaura, abre centralizada se o monitor foi desconectado, respeita o mínimo e o tamanho da tela, e salva quando a janela muda e ao fechar |
 | 40 | **(#55)** 25 mudanças seguidas de qualidade da tela (foco, pausa, adaptativa): a última pedida é a que fica valendo |
+| 42 | **(#57)** A chamada de voz trava (nunca é atendida): quem liga refaz, ou quem recebe pede de novo, até o áudio chegar nos dois lados |
+| 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

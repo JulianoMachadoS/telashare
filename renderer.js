@@ -938,7 +938,7 @@ function meshLoop() {
     pairRetry.set(id, r);
     dial(id);
   }
-  for (const p of peers.values()) checkScreenIn(p, now);
+  for (const p of peers.values()) { checkScreenIn(p, now); checkMic(p, now); }
   if (!isHost && !claiming && everConnected) watchHost(now, open);
 }
 
@@ -1082,6 +1082,10 @@ function setupConn(conn, outgoing) {
           applyEncoding(p.screenOut.peerConnection, p.sendLevel || 0, p.viewMode);
         }
         break;
+      case 'mic-request':
+        // o outro lado está sem a nossa voz: refaz a chamada (no máximo uma a cada 3 s)
+        if (isMicCaller(p) && Date.now() - (p.micCalledAt || 0) > 3000) callMic(p.id);
+        break;
       case 'screen-request':
         // quem assiste não recebeu a tela: refaz a chamada (no máximo uma a cada 3 s)
         if (screenStream && Date.now() - (p.screenCalledAt || 0) > 3000) { p.screenTries = 0; callScreen(p.id); }
@@ -1138,7 +1142,44 @@ function removePeer(id, reason = 'closed') {
 // ---------- chamadas de mídia ----------
 function callMic(id) {
   const call = peer.call(id, micDest.stream, { metadata: { kind: 'mic' } });
+  const p = getPeer(id);
+  p.micCalledAt = Date.now();
   attachMicCall(call);
+}
+
+// =====================================================================
+// VOZ VIGIADA (#57): a chamada de voz é uma conexão separada da de dados. Se ela travar no
+// meio do caminho (ex.: uma mensagem do aperto de mão se perdeu no servidor de sinalização),
+// os nomes aparecem mas não há áudio e o indicador fica em "Conectando..." para sempre.
+// Aqui, se a voz com alguém não conecta em ~12 s, quem liga (o ID menor, a mesma regra da
+// malha) refaz a chamada; o outro lado pede ('mic-request'). Com limite, e avisa se desistir.
+// =====================================================================
+let micCfg = { connectMs: 12000, max: 5 };
+function isMicCaller(p) { return !!peer && peer.id < p.id; }
+
+function checkMic(p, now) {
+  if (!p.conn || !p.conn.open) return;
+  const pc = p.micCall && p.micCall.peerConnection;
+  if (pc && pc.connectionState === 'connected') {
+    p.micSince = 0; p.micTries = 0;
+    if (p.micWarned) { p.micWarned = false; showToast(`✅ Áudio com ${displayName(p)} conectado`, 'ok'); }
+    return;
+  }
+  if (!p.micSince) { p.micSince = now; return; }
+  if (now - p.micSince < micCfg.connectMs) return;
+  p.micSince = now;
+  p.micTries = (p.micTries || 0) + 1;
+  if (p.micTries > micCfg.max) {
+    if (!p.micWarned) {
+      p.micWarned = true;
+      playSound('warn');
+      showToast(`⚠️ Sem áudio com ${displayName(p)}: a chamada de voz não conecta. Copie o 🩺 diagnóstico e envie para quem está ajudando.`, 'warn', 12000);
+    }
+    return;
+  }
+  logEvent(`voz com ${p.name} não conectou (${pc ? pc.connectionState + '/' + pc.iceConnectionState : 'sem chamada'}): ${isMicCaller(p) ? 'refazendo a chamada' : 'pedindo para ligar de novo'} (${p.micTries})`);
+  if (isMicCaller(p)) callMic(p.id);
+  else { try { p.conn.send({ type: 'mic-request' }); } catch {} }
 }
 
 function handleIncomingCall(call) {
