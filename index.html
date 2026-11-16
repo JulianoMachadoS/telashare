@@ -34,6 +34,7 @@
           <span class="bdot"></span><span id="connText">Desconectado</span>
         </div>
         <button id="aboutBtn" class="icon-btn" title="Sobre o TelaShare, licenças e repositório" aria-label="Sobre">i</button>
+        <button id="hideSidebarBtn" class="icon-btn plain" title="Esconder a barra lateral (Ctrl+B)" aria-label="Esconder a barra lateral">◀</button>
       </div>
     </div>
 
@@ -150,6 +151,14 @@
   </aside>
 
   <main id="stage">
+    <!-- Barra mínima quando a barra lateral está escondida (#37) -->
+    <div id="miniBar" class="hidden">
+      <button id="miniShow" title="Mostrar a barra lateral (Ctrl+B)" aria-label="Mostrar a barra lateral">☰</button>
+      <span id="miniDot" class="bdot" title="Status da conexão"></span>
+      <button id="miniMute" title="Ligar/desligar o microfone">🎤</button>
+      <button id="miniShare" title="Compartilhar tela">🖥️</button>
+      <button id="miniLeave" class="danger" title="Sair da sala">📞</button>
+    </div>
     <div id="empty" class="empty">
       <p>Nenhuma tela sendo compartilhada.</p>
       <p class="hint">Dê duplo clique em uma tela para tela cheia.</p>
