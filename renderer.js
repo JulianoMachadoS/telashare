@@ -1578,6 +1578,12 @@ function showTile(id, stream, isLocal) {
     const mut = document.createElement('span');
     mut.className = 'tmut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
     bar.appendChild(mut);
+    if (!isLocal) {
+      const wb = document.createElement('button');
+      wb.className = 'watchBtn';
+      wb.onclick = () => toggleWatch(id);
+      bar.appendChild(wb);
+    }
     const fb = document.createElement('button');
     fb.className = 'focusBtn';
     fb.onclick = () => toggleFocus(id);
@@ -1686,6 +1692,24 @@ function toggleFocus(id) {
   focusId = focusId === id ? null : id;
   applyFocus();
 }
+// =====================================================================
+// NÃO ASSISTIR UMA TELA (#59): a tela vira uma barrinha e quem compartilha para de enviar o
+// vídeo para você (os dois PCs aliviam). O som da tela continua, com o volume na barrinha.
+// O app lembra a escolha durante a sessão, mesmo se a pessoa parar e voltar a compartilhar.
+// =====================================================================
+const unwatched = new Set(); // instalação (deviceId) ou ID de quem eu escolhi não assistir
+const watchKey = p => p.deviceId || p.id;
+function isUnwatched(p) { return unwatched.has(watchKey(p)); }
+function toggleWatch(id) {
+  const p = peers.get(id);
+  if (!p) return;
+  const k = watchKey(p);
+  if (unwatched.has(k)) unwatched.delete(k); else unwatched.add(k);
+  logEvent(`${isUnwatched(p) ? 'parei de assistir' : 'voltei a assistir'} a tela de ${p.name}`);
+  if (isUnwatched(p) && focusId === id) focusId = null;
+  applyFocus(); // atualiza as telas e avisa quem compartilha (screen-view)
+}
+
 function applyFocus() {
   const grid = $('grid');
   if (focusId && !tileEl(focusId)) focusId = null;
@@ -1694,6 +1718,14 @@ function applyFocus() {
   for (const t of grid.children) {
     const f = on && t.dataset.id === focusId;
     t.classList.toggle('focused', f);
+    const p = peers.get(t.dataset.id);
+    const off = !!p && isUnwatched(p);
+    t.classList.toggle('unwatched', off);
+    const w = t.querySelector('.watchBtn');
+    if (w) {
+      w.textContent = off ? '👁️ Assistir' : '🙈';
+      w.title = off ? 'Voltar a assistir esta tela' : 'Não assistir esta tela (para de receber o vídeo e alivia o PC; o som continua)';
+    }
     const b = t.querySelector('.focusBtn');
     if (b) {
       b.textContent = f ? '↩️' : '🔍';
@@ -1793,6 +1825,7 @@ let viewHidden = false, hideTimer = null;
 // O que eu quero receber da tela de p: nada (app escondido), miniatura (outra tela em foco) ou normal
 function myViewMode(p) {
   if (viewHidden && $('pauseHiddenChk').checked) return 'off';
+  if (p && isUnwatched(p)) return 'off'; // escolhi não assistir esta tela (#59)
   if (p && focusId && focusId !== p.id && $('grid').classList.contains('focus')) return 'thumb';
   return 'full';
 }
@@ -1872,7 +1905,7 @@ async function buildDiagnostics() {
     L.push(`    dados: ${p.conn.open ? 'aberto' : 'fechado'} [${await pcInfo(pcOf(p.conn))}]`);
     L.push(`    voz: [${await pcInfo(pcOf(p.micCall))}]${p.voiceStream ? '' : ' · sem áudio recebido'}`);
     if (screenStream) L.push(`    minha tela →: [${await pcInfo(pcOf(p.screenOut))}]${p.screenTries ? ` · tentativas ${p.screenTries}` : ''}${p.viewMode === 'off' ? ' · vídeo pausado (app da pessoa escondido)' : ''}`);
-    if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
+    if (p.sharing || p.screenIn) L.push(`    ← tela: [${await pcInfo(pcOf(p.screenIn))}] · ${tileEl(p.id) ? 'aparecendo' : 'NÃO aparece'}${isUnwatched(p) ? ' · não estou assistindo (vídeo pausado)' : ''}${p.screenReqs ? ` · pedidos ${p.screenReqs}` : ''}`);
   }
   const missing = [...roster.keys()].filter(id => !isOpen(id) && !(peers.get(id) && peers.get(id).conn));
   if (missing.length) {

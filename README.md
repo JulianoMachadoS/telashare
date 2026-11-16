@@ -80,6 +80,7 @@ saído, você a abre de novo com o mesmo código, e os outros podem voltar tamb�
 | **Sons de aviso** | Bipes curtos quando alguém entra, sai, compartilha a tela, quando você muta, quando a conexão cai e quando volta. Com volume próprio |
 | **Abaixar o som das telas quando alguém fala** | Quando alguém fala, o som das telas (jogo, vídeo) cai para 30% e volta sozinho |
 | **◀ Esconder a barra lateral** (`Ctrl+B`) | As telas ocupam a janela toda e fica só uma barra mínima com ☰ (mostrar a barra), o status da conexão, 🎤 mudo, 🖥️ compartilhar e 📞 sair. O app lembra a escolha |
+| **🙈 Não assistir** (em cada tela) | A tela vira uma barrinha e quem compartilha **para de enviar o vídeo para você**, o que alivia o seu PC e o dele. **O som da tela continua**, com o volume na barrinha (dá para pôr em 0%). **👁️ Assistir** traz o vídeo de volta. A escolha vale até você fechar o app, mesmo se a pessoa parar e voltar a compartilhar |
 | **🔍 Tela em foco** | Clique numa tela (ou no 🔍) para deixá-la grande. As outras viram miniaturas à direita e chegam em **qualidade bem menor** (1/4 da resolução, 10 fps), o que alivia o seu PC e o de quem compartilha. Clique de novo (ou no ↩️) para voltar à grade. Duplo clique continua abrindo em tela cheia |
 | **Pausar o vídeo das telas com o app escondido** | Com o TelaShare minimizado ou coberto por outra janela (ex.: jogo em tela cheia) por mais de 2 s, quem compartilha **para de enviar o vídeo** para você. O seu PC não decodifica e o de quem compartilha não codifica aquele vídeo. **O som da tela e as vozes continuam.** Ao voltar para o app, o vídeo volta em ~1 s. Ligado por padrão |
 
@@ -332,6 +333,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 40 | **(#55)** 25 mudanças seguidas de qualidade da tela (foco, pausa, adaptativa): a última pedida é a que fica valendo |
 | 42 | **(#57)** A chamada de voz trava (nunca é atendida): quem liga refaz, ou quem recebe pede de novo, até o áudio chegar nos dois lados |
 | 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
+| 44 | **(#59)** "Não assistir": a tela vira barrinha, o vídeo para de vir e o som continua; a escolha vale quando a pessoa volta a compartilhar; "Assistir" traz o vídeo de volta |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre

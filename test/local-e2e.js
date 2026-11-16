@@ -890,6 +890,41 @@ app.whenReady().then(async () => {
     }
     check(`43. (#57) Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (${rounds} rodadas)`, ok === rounds, info.join(' | '));
   }
+  // 44. (#59) Não assistir a tela de alguém: vira barrinha, o vídeo para de vir, o som continua
+  if (want(44)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000);
+    const startShare = () => js(B, `(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+      const g = c.getContext('2d'); window.__cv = setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,320,180); }, 100);
+      const o = audioCtx.createOscillator(); const d = audioCtx.createMediaStreamDestination(); o.connect(d); o.start();
+      screenStream = new MediaStream([c.captureStream(10).getVideoTracks()[0], d.stream.getAudioTracks()[0]]);
+      for (const p of peers.values()) callScreen(p.id); return 1; })()`);
+    await startShare();
+    await until(async () => (await js(A, 'document.querySelectorAll(".tile").length')) === 1, 20000);
+    await wait(2000);
+    const bId = await js(B, 'peer.id');
+    const active = () => js(B, `(() => { const p = [...peers.values()][0]; const pc = p.screenOut && p.screenOut.peerConnection; if (!pc || pc.connectionState !== 'connected') return null;
+      return pc.getSenders().find(s => s.track && s.track.kind === 'video').getParameters().encodings[0].active !== false; })()`);
+    const stats = () => js(A, `(async () => { const p = [...peers.values()][0]; const st = await p.screenIn.peerConnection.getStats(); let v = 0, a = 0;
+      st.forEach(r => { if (r.type === 'inbound-rtp' && r.kind === 'video') v = r.framesDecoded || 0; if (r.type === 'inbound-rtp' && r.kind === 'audio') a = r.packetsReceived || 0; }); return { v, a }; })()`);
+    const delta = async ms => { const x = await stats(); await wait(ms); const y = await stats(); return { v: y.v - x.v, a: y.a - x.a }; };
+    await js(A, `tileEl('${bId}').querySelector('.watchBtn').click(); 1`);
+    const stopped = await until(async () => (await active()) === false, 8000);
+    await wait(800);
+    const off = await delta(2500);
+    const ui = await js(A, `({ cls: tileEl('${bId}').classList.contains('unwatched'), video: getComputedStyle(tileEl('${bId}').querySelector('video')).display, btn: tileEl('${bId}').querySelector('.watchBtn').textContent })`);
+    check('44a. (#59) "Não assistir": a tela vira barrinha e quem compartilha para de enviar o vídeo; o som continua',
+      stopped && off.v <= 2 && off.a > 20 && ui.cls && ui.video === 'none' && /Assistir/.test(ui.btn), JSON.stringify({ stopped, off, ui }));
+    // a pessoa para e volta a compartilhar: continua sem assistir
+    await js(B, 'clearInterval(window.__cv); stopShare(); 1'); await wait(1500);
+    await startShare();
+    await until(async () => (await js(A, 'document.querySelectorAll(".tile").length')) === 1, 20000);
+    const keep = await until(async () => (await active()) === false, 10000) && await js(A, `tileEl('${bId}').classList.contains('unwatched')`);
+    check('44b. (#59) Se a pessoa parar e voltar a compartilhar, a escolha continua valendo', keep);
+    await js(A, `tileEl('${bId}').querySelector('.watchBtn').click(); 1`);
+    const back = await until(async () => (await active()) === true, 8000) && await until(async () => (await delta(1000)).v > 3, 8000);
+    check('44c. (#59) "Assistir" traz o vídeo de volta', back && !(await js(A, `tileEl('${bId}').classList.contains('unwatched')`)));
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
