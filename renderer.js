@@ -970,7 +970,7 @@ function setupConn(conn, outgoing) {
     p.lastSeen = Date.now();
     everConnected = true;
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
-    if (myViewMode() !== 'full') conn.send({ type: 'screen-view', mode: myViewMode() });
+    if (myViewMode(p) !== 'full') conn.send({ type: 'screen-view', mode: myViewMode(p) });
     if (rejoining) rejoinSucceeded();
 
     if (isHost) {
@@ -1044,11 +1044,11 @@ function setupConn(conn, outgoing) {
         break;
       case 'screen-start':
         if (!p.sharing) { p.sharing = true; p.screenWaitSince = Date.now(); p.screenReqs = 0; p.screenInWarned = false; }
-        if (myViewMode() !== 'full') sendViewMode(p);
+        if (myViewMode(p) !== 'full') sendViewMode(p);
         break;
       case 'screen-view':
         // quem assiste avisou se quer o vídeo da minha tela (app dele visível ou não)
-        p.viewMode = msg.mode === 'off' ? 'off' : 'full';
+        p.viewMode = ['off', 'thumb'].includes(msg.mode) ? msg.mode : 'full';
         if (p.screenOut && p.screenOut.peerConnection && p.screenOut.peerConnection.connectionState === 'connected') {
           applyEncoding(p.screenOut.peerConnection, p.sendLevel || 0, p.viewMode);
         }
@@ -1175,7 +1175,9 @@ const ADAPT_LEVELS = [
   { scale: 2,   br: 0.3,  label: 'baixa' }
 ];
 
-// mode: o que quem assiste pediu ('full' = normal, 'off' = app dele escondido: não envia vídeo)
+// Miniatura (tela em foco, #47): quem assiste está vendo esta tela pequena
+const THUMB = { scale: 4, bitrate: 300000, fps: 10 };
+// mode: o que quem assiste pediu ('full' = normal, 'thumb' = miniatura, 'off' = app dele escondido)
 function applyEncoding(pc, level, mode = 'full') {
   const L = ADAPT_LEVELS[level];
   pc.getSenders().forEach(s => {
@@ -1184,9 +1186,10 @@ function applyEncoding(pc, level, mode = 'full') {
     if (!params.encodings || !params.encodings.length) params.encodings = [{}];
     // vídeo pausado para quem não está olhando: não codifica nem envia (o áudio da tela continua)
     params.encodings[0].active = mode !== 'off';
-    params.encodings[0].maxBitrate = Math.round(currentQuality.bitrate * L.br);
-    params.encodings[0].maxFramerate = currentQuality.fps;
-    params.encodings[0].scaleResolutionDownBy = L.scale;
+    const thumb = mode === 'thumb';
+    params.encodings[0].maxBitrate = Math.round(thumb ? Math.min(THUMB.bitrate, currentQuality.bitrate * L.br) : currentQuality.bitrate * L.br);
+    params.encodings[0].maxFramerate = thumb ? Math.min(THUMB.fps, currentQuality.fps) : currentQuality.fps;
+    params.encodings[0].scaleResolutionDownBy = thumb ? Math.max(THUMB.scale, L.scale) : L.scale;
     params.degradationPreference = currentQuality.fps >= 60 ? 'maintain-framerate' : 'balanced';
     s.setParameters(params).catch(e => console.warn('setParameters', e));
   });
@@ -1236,7 +1239,7 @@ function callScreen(id) {
     }
     if (pc.connectionState === 'connected') {
       if (!started) { started = true; p.screenTries = 0; p.screenWarned = false; applyEncoding(pc, p.sendLevel, p.viewMode); }
-      if (p.viewMode === 'off') { setTimeout(loop, 2000); return; } // pausado: nada para adaptar
+      if (p.viewMode && p.viewMode !== 'full') { setTimeout(loop, 2000); return; } // pausado/miniatura: nada para adaptar
       try {
         const stats = await pc.getStats();
         let lost = 0, sent = 0, avail = null;
@@ -1481,6 +1484,11 @@ function showTile(id, stream, isLocal) {
     const mut = document.createElement('span');
     mut.className = 'tmut'; mut.textContent = '🔇'; mut.title = 'Microfone mudo';
     bar.appendChild(mut);
+    const fb = document.createElement('button');
+    fb.className = 'focusBtn';
+    fb.onclick = () => toggleFocus(id);
+    bar.appendChild(fb);
+    v.onclick = () => toggleFocus(id);
     const fs = document.createElement('button');
     fs.textContent = 'Tela cheia';
     fs.onclick = () => toggleFullscreen(t);
@@ -1496,6 +1504,7 @@ function showTile(id, stream, isLocal) {
     if (!isLocal) attachScreenAudio(getPeer(id), stream);
   }
   updateTileName(isLocal ? { id, name: $('nameInput').value.trim() } : getPeer(id));
+  applyFocus();
   if (!isLocal) paintMuted(getPeer(id));
   applyVolumes();
   $('empty').classList.add('hidden');
@@ -1526,6 +1535,33 @@ function updateAllTileNames() {
   for (const p of peers.values()) updateTileName(p);
 }
 
+// =====================================================================
+// TELA EM FOCO (#47): clicando numa tela, ela fica grande e as outras viram miniaturas.
+// Para as miniaturas, pedimos a quem compartilha uma qualidade bem menor (THUMB), aliviando
+// CPU, GPU e rede dos dois lados. Clicando de novo (ou em "↩️"), volta para a grade.
+// =====================================================================
+let focusId = null;
+function toggleFocus(id) {
+  focusId = focusId === id ? null : id;
+  applyFocus();
+}
+function applyFocus() {
+  const grid = $('grid');
+  if (focusId && !tileEl(focusId)) focusId = null;
+  const on = !!focusId && grid.children.length > 1;
+  grid.classList.toggle('focus', on);
+  for (const t of grid.children) {
+    const f = on && t.dataset.id === focusId;
+    t.classList.toggle('focused', f);
+    const b = t.querySelector('.focusBtn');
+    if (b) {
+      b.textContent = f ? '↩️' : '🔍';
+      b.title = f ? 'Voltar para a grade' : 'Destacar esta tela (as outras ficam pequenas e mais leves)';
+    }
+  }
+  broadcastViewMode();
+}
+
 function removeTile(id) {
   const t = tileEl(id);
   if (t) {
@@ -1536,6 +1572,7 @@ function removeTile(id) {
   const p = peers.get(id);
   if (p && p.screenSrc) { try { p.screenSrc.disconnect(); } catch {} p.screenSrc = null; }
   if (!$('grid').children.length) $('empty').classList.remove('hidden');
+  applyFocus();
 }
 
 function toggleFullscreen(el) {
@@ -1612,9 +1649,18 @@ function renderPeers() {
 // =====================================================================
 const HIDE_PAUSE_DELAY_MS = 2000; // evita pausar numa troca rápida de janela (Alt+Tab)
 let viewHidden = false, hideTimer = null;
-function myViewMode() { return viewHidden && $('pauseHiddenChk').checked ? 'off' : 'full'; }
+// O que eu quero receber da tela de p: nada (app escondido), miniatura (outra tela em foco) ou normal
+function myViewMode(p) {
+  if (viewHidden && $('pauseHiddenChk').checked) return 'off';
+  if (p && focusId && focusId !== p.id && $('grid').classList.contains('focus')) return 'thumb';
+  return 'full';
+}
 function sendViewMode(p) {
-  if (p.conn && p.conn.open) { try { p.conn.send({ type: 'screen-view', mode: myViewMode() }); } catch {} }
+  const mode = myViewMode(p);
+  if (p.lastViewSent === mode && p.lastViewConn === p.conn) return; // não repete o mesmo pedido
+  if (p.conn && p.conn.open) {
+    try { p.conn.send({ type: 'screen-view', mode }); p.lastViewSent = mode; p.lastViewConn = p.conn; } catch {}
+  }
 }
 function broadcastViewMode() {
   for (const p of peers.values()) sendViewMode(p);
@@ -1675,6 +1721,7 @@ async function buildDiagnostics() {
     ? `sim, com áudio do PC (sem as vozes da sala: ${screenAudioExcludesSelf ? 'sim' : 'NÃO'})` : 'sim, sem áudio';
   L.push(`Microfone: ${micMuted ? 'mudo' : 'ligado'} · Compartilhando a tela: ${sharing}`);
   L.push(`App visível: ${viewHidden ? 'não' : 'sim'} · Vídeo das telas que recebo: ${myViewMode() === 'off' ? 'pausado (app escondido)' : 'normal'}`);
+  if (focusId) L.push(`Tela em foco: ${focusId === '__local__' ? 'a minha' : (peers.get(focusId) ? displayName(peers.get(focusId)) : focusId)} (as outras em miniatura)`);
   L.push('');
   L.push('Ligações (dados | voz | minha tela → | ← tela da pessoa):');
   const linked = [...peers.values()].filter(p => p.conn);

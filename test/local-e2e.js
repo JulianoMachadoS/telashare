@@ -706,6 +706,44 @@ app.whenReady().then(async () => {
     await setVis('visible');
     check('35d. (#46) Com a opção desligada, o vídeo continua mesmo com o app escondido', offActive && off.v > 5, JSON.stringify({ off, enviando: offActive }));
     destroy([A, B]); }
+  // 36. (#47) Tela em foco: a tela destacada fica grande e as outras viram miniaturas leves
+  if (want(36)) { const THUMB_BR = 300000; const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+    await host(A, room); await wait(2500); await join(B, room, 'Bia'); await wait(1000); await join(C, room, 'Caio');
+    await until(async () => (await count(A)) === 2 && (await count(B)) === 2 && (await count(C)) === 2, 40000);
+    const share = w => js(w, `(() => { const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+      const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,1280,720); }, 100);
+      currentQuality = QUALITY['1080_30']; screenStream = c.captureStream(10); for (const p of peers.values()) callScreen(p.id); return 1; })()`);
+    await share(B); await share(C);
+    await until(async () => (await js(A, 'document.querySelectorAll(".tile").length')) === 2, 30000);
+    const aId = await js(A, 'peer.id'), bId = await js(B, 'peer.id'), cId = await js(C, 'peer.id');
+    // como B e C estão enviando a tela deles para A
+    const enc = (w) => js(w, `(() => { const p = peers.get('${aId}'); const pc = p && p.screenOut && p.screenOut.peerConnection; if (!pc || pc.connectionState !== 'connected') return null;
+      const e = pc.getSenders().find(s => s.track && s.track.kind === 'video').getParameters().encodings[0];
+      return { scale: e.scaleResolutionDownBy, br: e.maxBitrate, fps: e.maxFramerate, active: e.active !== false, mode: p.viewMode || 'full' }; })()`);
+    await until(async () => (await enc(B)) && (await enc(C)), 20000); await wait(1500);
+    const grid0 = await enc(B);
+    // "normal" = sem miniatura; a qualidade adaptativa (#15) pode ter baixado até a escala 2 sozinha
+    const isFull = e => e && e.mode === 'full' && e.active && e.scale <= 2 && e.br > THUMB_BR && e.fps > 10;
+    // A destaca a tela de B
+    await js(A, `tileEl('${bId}').querySelector('.focusBtn').click(); 1`);
+    const thumbed = await until(async () => { const c = await enc(C); return c && c.scale >= 4 && c.br <= 300000 && c.fps <= 10; }, 10000);
+    const layout = await js(A, `({ focus: grid.classList.contains('focus'), big: tileEl('${bId}').classList.contains('focused'), small: !tileEl('${cId}').classList.contains('focused') })`);
+    const bFull = await enc(B), cThumb = await enc(C);
+    check('36a. (#47) Destacar uma tela: ela fica grande e as outras viram miniaturas', layout.focus && layout.big && layout.small, JSON.stringify(layout));
+    check('36b. (#47) A miniatura é enviada em qualidade bem menor; a tela em foco continua normal',
+      thumbed && isFull(bFull) && cThumb.mode === 'thumb', JSON.stringify({ grade: grid0, emFoco: bFull, miniatura: cThumb }));
+    // trocar o foco para C: os papéis se invertem
+    await js(A, `tileEl('${cId}').querySelector('video').click(); 1`);
+    const swapped = await until(async () => { const b = await enc(B), c = await enc(C); return b && c && b.mode === 'thumb' && b.scale >= 4 && isFull(c); }, 10000);
+    // voltar para a grade: as duas normais
+    await js(A, `tileEl('${cId}').querySelector('.focusBtn').click(); 1`);
+    const back = await until(async () => { const b = await enc(B), c = await enc(C); return b && c && isFull(b) && isFull(c); }, 10000);
+    check('36c. (#47) Trocar o foco inverte as qualidades; voltar para a grade restaura as duas', swapped && back && !(await js(A, 'grid.classList.contains("focus")')));
+    // app escondido tem prioridade sobre o foco: nada é enviado
+    await js(A, `tileEl('${bId}').querySelector('.focusBtn').click(); Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); 1`);
+    const allOff = await until(async () => { const b = await enc(B), c = await enc(C); return b && c && !b.active && !c.active; }, 10000);
+    check('36d. (#47) Com o app escondido, nem a tela em foco nem as miniaturas são enviadas', allOff);
+    destroy([A, B, C]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
