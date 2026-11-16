@@ -517,6 +517,7 @@ async function hostRoom() {
     } else alert('Erro ao criar sala: ' + (err.message || err.type));
     return;
   }
+  clearJoin();
   isHost = true;
   enterRoom(f.room);
 }
@@ -604,6 +605,13 @@ function tryJoin() {
 }
 let joinAttempts = 0;
 let joinTarget = null;
+// Encerra qualquer tentativa de ENTRAR em andamento (#61). Sem isso, sair no meio de uma
+// tentativa deixava o selo preso em "Conectando à sala..." mesmo depois de criar outra sala.
+function clearJoin() {
+  joinTarget = null;
+  joinRetryFn = null;
+  joinAttempts++; // invalida os temporizadores da tentativa antiga
+}
 
 // Conexão com o servidor de sinalização caiu: tenta voltar com limite de tentativas.
 // (Quem já está conectado continua conversando; o servidor só serve para novas entradas.)
@@ -694,6 +702,7 @@ function leaveRoom() {
   sayGoodbye();
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
   clearMesh();
+  clearJoin();
   hostLostAt = hostNextDial = claimNext = 0;
   everConnected = false;
   if (peer) { peer.destroy(); peer = null; }
@@ -968,6 +977,7 @@ async function claimRoom() {
   broadcast({ type: 'migrate' });
   const old = peer;
   peer = np;
+  clearJoin();
   isHost = true;
   hostLostAt = 0;
   for (const id of [...peers.keys()]) removePeer(id, 'leave');
@@ -998,6 +1008,7 @@ function setupConn(conn, outgoing) {
     p.conn = conn;
     p.lastSeen = Date.now();
     everConnected = true;
+    if (joinTarget && conn.peer === joinTarget) clearJoin(); // já estamos ligados à sala
     conn.send({ type: 'hello', name: $('nameInput').value.trim(), muted: micMuted, deviceId: DEVICE_ID });
     if (myViewMode(p) !== 'full') conn.send({ type: 'screen-view', mode: myViewMode(p) });
     if (rejoining) rejoinSucceeded();
@@ -1982,12 +1993,12 @@ function updateBadge() {
   if (rejoining) { cls = 'bad'; t = `Reconectando (${rejoinAttempt} de ${rejoinCfg.max})...`; }
   else if (!peer) { cls = 'off'; t = 'Desconectado'; }
   else if (peer.disconnected) { cls = 'bad'; t = n ? `Servidor caiu · reconectando (${n} ainda conectado${n > 1 ? 's' : ''})` : 'Sem servidor · reconectando...'; }
-  else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
   else if (n) {
     const bad = [...peers.values()].some(p => p.net && (p.net.cls === 'bad' || p.net.cls === 'warn'));
     cls = bad ? 'warn' : 'good';
     t = `Conectado · ${n} pessoa${n > 1 ? 's' : ''}`;
   }
+  else if (joinTarget) { cls = 'wait'; t = 'Conectando à sala...'; }
   else { cls = 'good'; t = isHost ? 'Online · aguardando pessoas' : 'Online'; }
   badge.className = 'badge ' + cls;
   text.textContent = t;
