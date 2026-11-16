@@ -853,6 +853,43 @@ app.whenReady().then(async () => {
       r2.active && r2.scale === 4 && r2.br === 300000 && r2.fps === 10 &&
       !r3.active, JSON.stringify({ r1, r2, r3 }));
     destroy([A, B]); }
+  // 42. (#57) A chamada de VOZ trava (nunca é atendida): o app tem que refazer até ter áudio
+  //     a) quem liga percebe e refaz; b) quem recebe percebe e pede para ligar de novo.
+  //     No código antigo, os nomes apareciam mas o áudio nunca chegava (A=0, B=0).
+  if (want(42)) {
+    for (const lado of ['a', 'b']) {
+      const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+      // A (anfitrião) ignora a 1ª chamada de voz: ela fica travada, sem resposta
+      await js(A, `(() => { window.__drop = 1; const orig = handleIncomingCall;
+        handleIncomingCall = call => { if (call.metadata && call.metadata.kind === 'mic' && window.__drop > 0) { window.__drop--; return; } orig(call); };
+        micCfg.connectMs = 4000; return 1; })()`);
+      // b) quem liga (B, o convidado) demora para perceber: quem recebe (A) é quem pede
+      await js(B, `micCfg.connectMs = ${lado === 'a' ? 4000 : 600000}; 1`);
+      await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+      const names = await until(async () => (await js(A, 'peers.size')) === 1 && (await js(A, '[...peers.values()][0].helloed === true')), 20000);
+      const ok = await until(async () => (await count(A)) === 1 && (await count(B)) === 1, 40000);
+      const log = (await js(A, 'diagLog.slice()')).concat(await js(B, 'diagLog.slice()')).filter(l => /voz com/.test(l));
+      check(lado === 'a' ? '42a. (#57) Voz travada: quem liga percebe, refaz a chamada e o áudio chega nos dois lados'
+                         : '42b. (#57) Voz travada: quem recebe percebe, pede de novo e o áudio chega nos dois lados',
+        names && ok && (await js(A, 'window.__drop')) === 0 && log.length > 0, JSON.stringify({ names, ok, A: await count(A), B: await count(B), log }));
+      destroy([A, B]);
+    }
+  }
+  // 43. (#57) Duas pessoas entram EXATAMENTE ao mesmo tempo: todos têm que se ver e se ouvir
+  if (want(43)) {
+    let ok = 0; const rounds = 3, info = [];
+    for (let i = 0; i < rounds; i++) {
+      const room = rid(), A = mk(), B = mk(), C = mk(); await ready([A, B, C]);
+      await host(A, room); await wait(2500);
+      await Promise.all([join(B, room, 'B'), join(C, room, 'C')]);
+      const r = await until(async () => (await count(A)) === 2 && (await count(B)) === 2 && (await count(C)) === 2, 45000);
+      info.push(`${await count(A)}/${await count(B)}/${await count(C)}`);
+      if (!r) await dump([A, B, C]);
+      if (r) ok++;
+      destroy([A, B, C]);
+    }
+    check(`43. (#57) Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (${rounds} rodadas)`, ok === rounds, info.join(' | '));
+  }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
