@@ -1536,6 +1536,53 @@ function updateAllTileNames() {
 }
 
 // =====================================================================
+// BARRA LATERAL ESCONDIDA (#37): a área das telas ocupa a janela toda e fica só uma barra
+// mínima com o essencial (mostrar a barra, status, mudo, compartilhar e sair). Ctrl+B alterna.
+// =====================================================================
+function setSidebarHidden(h) {
+  document.body.classList.toggle('sidebar-hidden', h);
+  $('miniBar').classList.toggle('hidden', !h);
+  store.set('sidebarHidden', h);
+  syncMiniBar();
+}
+function toggleSidebar() { setSidebarHidden(!document.body.classList.contains('sidebar-hidden')); }
+
+// Os botões da barra mínima espelham os botões da barra lateral
+function syncMiniBar() {
+  if ($('miniBar').classList.contains('hidden')) return;
+  const inRoom = !$('roomBox').classList.contains('hidden');
+  const m = $('miniMute');
+  m.textContent = micMuted ? '🔇' : '🎤';
+  m.classList.toggle('on', micMuted);
+  m.title = micMuted ? 'Microfone mudo (clique para ligar)' : 'Microfone ligado (clique para mutar)';
+  const s = $('miniShare');
+  s.textContent = screenStream ? '⏹️' : '🖥️';
+  s.title = screenStream ? 'Parar compartilhamento' : 'Compartilhar tela';
+  s.disabled = $('shareBtn').disabled;
+  $('miniLeave').classList.toggle('hidden', !inRoom);
+  const badge = $('connBadge');
+  $('miniDot').className = 'bdot ' + (['good', 'warn', 'bad', 'wait'].find(c => badge.classList.contains(c)) || '');
+  $('miniDot').title = $('connText').textContent;
+}
+
+function initSidebarToggle() {
+  $('hideSidebarBtn').onclick = () => setSidebarHidden(true);
+  $('miniShow').onclick = () => setSidebarHidden(false);
+  $('miniMute').onclick = () => $('muteBtn').click();
+  $('miniShare').onclick = () => $('shareBtn').click();
+  $('miniLeave').onclick = () => $('leaveBtn').click();
+  // qualquer mudança nos botões/selo da barra lateral atualiza a barra mínima
+  const obs = new MutationObserver(syncMiniBar);
+  for (const id of ['muteBtn', 'shareBtn', 'roomBox', 'connBadge']) {
+    obs.observe($(id), { attributes: true, childList: true, characterData: true, subtree: true });
+  }
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); toggleSidebar(); }
+  });
+  setSidebarHidden(store.get('sidebarHidden', false));
+}
+
+// =====================================================================
 // TELA EM FOCO (#47): clicando numa tela, ela fica grande e as outras viram miniaturas.
 // Para as miniaturas, pedimos a quem compartilha uma qualidade bem menor (THUMB), aliviando
 // CPU, GPU e rede dos dois lados. Clicando de novo (ou em "↩️"), volta para a grade.
@@ -2079,6 +2126,7 @@ async function init() {
   $('leaveBtn').onclick = leaveRoom;
   $('inviteBtn').onclick = copyInvite;
   $('diagBtn').onclick = copyDiagnostics;
+  initSidebarToggle();
   $('pauseHiddenChk').checked = store.get('pauseHidden', true);
   $('pauseHiddenChk').onchange = () => { store.set('pauseHidden', $('pauseHiddenChk').checked); broadcastViewMode(); };
   document.addEventListener('visibilitychange', onVisibilityChange);

@@ -744,6 +744,36 @@ app.whenReady().then(async () => {
     const allOff = await until(async () => { const b = await enc(B), c = await enc(C); return b && c && !b.active && !c.active; }, 10000);
     check('36d. (#47) Com o app escondido, nem a tela em foco nem as miniaturas são enviadas', allOff);
     destroy([A, B, C]); }
+  // 37. (#37) Esconder a barra lateral: barra mínima com o essencial, Ctrl+B e preferência salva
+  if (want(37)) { const room = rid(), A = mk(); await ready([A]);
+    await host(A, room);
+    await until(async () => await js(A, '!!(peer && peer.open)'), 15000);
+    const st = () => js(A, `({ hidden: document.body.classList.contains('sidebar-hidden'), sideW: sidebar.offsetWidth, mini: !miniBar.classList.contains('hidden'),
+      stageW: stage.offsetWidth, winW: window.innerWidth, mute: miniMute.textContent, muted: micMuted, leave: !miniLeave.classList.contains('hidden'),
+      saved: localStorage.getItem('ts_sidebarHidden') })`);
+    const open0 = await st();
+    await js(A, 'hideSidebarBtn.click(); 1'); await wait(200);
+    const closed = await st();
+    check('37a. (#37) Esconder a barra: as telas ocupam a janela toda e aparece a barra mínima',
+      !open0.hidden && open0.sideW > 200 && closed.hidden && closed.sideW === 0 && closed.mini && closed.stageW === closed.winW && closed.leave && closed.saved === 'true',
+      JSON.stringify({ open0, closed }));
+    await js(A, 'miniMute.click(); 1'); await wait(300);
+    const m1 = await st();
+    await js(A, 'miniMute.click(); 1'); await wait(300);
+    const m2 = await st();
+    check('37b. (#37) O mudo da barra mínima funciona e mostra o estado', m1.muted && m1.mute === '🔇' && !m2.muted && m2.mute === '🎤', JSON.stringify({ m1: [m1.muted, m1.mute], m2: [m2.muted, m2.mute] }));
+    await js(A, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })); 1`); await wait(200);
+    const shown = await st();
+    await js(A, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true })); 1`); await wait(200);
+    const hiddenAgain = await st();
+    check('37c. (#37) Ctrl+B mostra e esconde a barra', !shown.hidden && shown.sideW > 200 && !shown.mini && hiddenAgain.hidden && hiddenAgain.mini);
+    // a preferência vale na próxima abertura
+    await js(A, 'location.reload(); 1').catch(() => {}); await wait(3500);
+    await until(async () => { try { return await js(A, "!!document.getElementById('hostBtn').onclick"); } catch { return false; } }, 20000);
+    const reopened = await st();
+    await js(A, 'miniShow.click(); 1');
+    check('37d. (#37) A barra continua escondida depois de reabrir o app', reopened.hidden && reopened.mini && !reopened.leave, JSON.stringify(reopened));
+    destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });

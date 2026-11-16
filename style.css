@@ -165,6 +165,20 @@ button.active { background: #248046; }
 .header-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .icon-btn { width: 26px; height: 26px; min-width: 26px; margin: 0; padding: 0; border-radius: 50%; background: #1e1f22; border: 2px solid #949ba4; color: #dbdee1; font: italic bold 14px Georgia, 'Times New Roman', serif; line-height: 22px; text-align: center; }
 .icon-btn:hover { border-color: #fff; color: #fff; }
+.icon-btn.plain { font: 12px system-ui, sans-serif; line-height: 22px; }
+
+/* Barra lateral escondida (#37): a área das telas ocupa a janela toda */
+body.sidebar-hidden #sidebar { display: none; }
+#miniBar {
+  position: sticky; top: 0; z-index: 3; display: inline-flex; align-items: center; gap: 6px;
+  margin-bottom: 10px; padding: 6px; background: #2b2d31ee; border-radius: 10px;
+}
+#miniBar button { width: auto; margin: 0; padding: 4px 10px; font-size: 15px; }
+#miniBar button.on { background: #da373c; }
+#miniBar .bdot { width: 10px; height: 10px; border-radius: 50%; background: #80848e; margin: 0 4px; }
+#miniBar .bdot.good { background: #23a55a; }
+#miniBar .bdot.warn, #miniBar .bdot.wait { background: #f0b232; }
+#miniBar .bdot.bad { background: #da373c; }
 .about-box { width: min(720px, 94vw); position: relative; display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; }
 .about-scroll { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
 .about-foot { padding-top: 10px; border-top: 1px solid #3f4147; margin-top: 10px; }
