@@ -86,6 +86,10 @@ const ready = async ws => {
   for (const w of ws) {
     await until(async () => { try { return await js(w, "!!(document.getElementById('hostBtn').onclick && typeof audioCtx !== 'undefined' && audioCtx)"); } catch { return false; } }, 30000);
     await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1');
+    // As janelas de teste ficam ocultas e o Chromium pode marcá-las como "escondidas", o que
+    // pausaria o vídeo das telas (#46) no meio de outros testes. Aqui elas contam como visíveis;
+    // o teste 35 simula o app escondido de propósito.
+    await js(w, "Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }); 1");
   }
 };
 const host = (w, room) => js(w, `nameInput.value='Host'; roomInput.value='${room}'; hostBtn.click(); 1`);
@@ -666,6 +670,42 @@ app.whenReady().then(async () => {
       /!IS_PORTABLE/.test(mainSrc) && /require\('electron-updater'\)/.test(mainSrc) && /--publish never/.test(pkg.scripts.dist),
       JSON.stringify({ target: b.win.target, pub, dist: pkg.scripts.dist }));
   }
+  // 35. (#46) App escondido: quem compartilha para de enviar o VÍDEO (o som continua)
+  //     "Escondido" é simulado mudando document.visibilityState (como ao minimizar).
+  if (want(35)) { const room = rid(), A = mk(), B = mk(); await ready([A, B]);
+    await host(A, room); await wait(2500); await join(B, room, 'Amigo');
+    await until(async () => (await count(A)) === 1, 20000);
+    // B compartilha uma tela com vídeo E som
+    await js(B, `(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+      const g = c.getContext('2d'); setInterval(() => { g.fillStyle = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'); g.fillRect(0,0,320,180); }, 100);
+      const o = audioCtx.createOscillator(); const d = audioCtx.createMediaStreamDestination(); o.connect(d); o.start();
+      screenStream = new MediaStream([c.captureStream(10).getVideoTracks()[0], d.stream.getAudioTracks()[0]]);
+      for (const p of peers.values()) callScreen(p.id); return 1; })()`);
+    await until(async () => (await js(A, 'document.querySelectorAll(".tile").length')) === 1, 20000);
+    await wait(2000);
+    const stats = () => js(A, `(async () => { const p = [...peers.values()][0]; const st = await p.screenIn.peerConnection.getStats(); let v = 0, a = 0;
+      st.forEach(r => { if (r.type === 'inbound-rtp' && r.kind === 'video') v = r.framesDecoded || 0; if (r.type === 'inbound-rtp' && r.kind === 'audio') a = r.packetsReceived || 0; }); return { v, a }; })()`);
+    const active = () => js(B, `(() => { const s = [...peers.values()][0].screenOut.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video'); return s.getParameters().encodings[0].active !== false; })()`);
+    const delta = async ms => { const x = await stats(); await wait(ms); const y = await stats(); return { v: y.v - x.v, a: y.a - x.a }; };
+    const setVis = v => js(A, `Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => '${v}' }); document.dispatchEvent(new Event('visibilitychange')); 1`);
+    const before = await delta(2000);
+    await setVis('hidden'); await wait(3500);
+    const hiddenActive = await active();
+    const hidden = await delta(2500);
+    await setVis('visible');
+    const resumed = await until(async () => await active(), 5000) && await until(async () => (await delta(1000)).v > 3, 8000);
+    check('35a. (#46) App escondido: quem compartilha para de enviar o vídeo e aqui para de decodificar',
+      before.v > 5 && !hiddenActive && hidden.v <= 2, JSON.stringify({ antes: before, escondido: hidden, enviando: hiddenActive }));
+    check('35b. (#46) O som da tela e a voz continuam com o vídeo pausado', hidden.a > 20 && (await count(A)) === 1, JSON.stringify({ somDaTela: hidden.a, voz: await count(A) }));
+    check('35c. (#46) Voltando para o app, o vídeo volta sozinho', resumed);
+    // opção desligada: não pausa
+    await js(A, 'pauseHiddenChk.checked = false; pauseHiddenChk.onchange(); 1');
+    await setVis('hidden'); await wait(3500);
+    const offActive = await active();
+    const off = await delta(2000);
+    await setVis('visible');
+    check('35d. (#46) Com a opção desligada, o vídeo continua mesmo com o app escondido', offActive && off.v > 5, JSON.stringify({ off, enviando: offActive }));
+    destroy([A, B]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
