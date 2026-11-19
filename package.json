@@ -32,7 +32,7 @@
       "window-state.js",
       "preload.js",
       "index.html",
-      "renderer.js",
+      "src/**/*",
       "style.css",
       "build/icon.png",
       "LICENSE",

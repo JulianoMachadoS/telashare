@@ -947,6 +947,24 @@ app.whenReady().then(async () => {
     check('45. (#61) Depois de desistir de entrar e criar a sala, o selo mostra "Conectado" com o amigo na sala',
       /^Conectado · 1 pessoa$/.test(badge) && !(await js(A, '!!joinTarget')) && !late.length, JSON.stringify({ badge, alertas: late }));
     destroy([A, B]); }
+  // 46. (#64) Núcleo separado da interface: os arquivos de src/core não mexem na tela (só o <audio>
+  //     escondido que o Chromium exige para o áudio WebRTC) e a interface preenche todo o contrato `ui`
+  if (want(46)) {
+    const fs = require('fs');
+    const dir = path.join(APP, 'src', 'core');
+    const bad = [];
+    for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+      fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '').replace(/'[^']*'|`[^`]*`/g, "''");
+        const allowed = /document\.createElement\('audio'\)|document\.body\.appendChild\(p\.audioEl\)/.test(line);
+        if (!allowed && /\bdocument\b|\$\(|querySelector|getElementById|classList|innerHTML|\btextContent\b|(^|[^.\w])(alert|confirm)\(/.test(code)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    check('46a. (#64) O núcleo (src/core) não acessa a tela', !bad.length, bad.join(' | '));
+    const A = mk(); await ready([A]);
+    const missing = await js(A, 'missingUiHooks()');
+    check('46b. (#64) A interface preenche todo o contrato do núcleo (ui)', Array.isArray(missing) && !missing.length, JSON.stringify(missing));
+    destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);
 });
