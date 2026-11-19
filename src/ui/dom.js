@@ -44,13 +44,52 @@ function renderToast(msg, kind = 'info', ms = 5000) {
 }
 
 // =====================================================================
+// AVISOS E CONFIRMAÇÕES (#66)
+// Caixa própria dentro da página no lugar de alert()/confirm(): no Linux as janelas nativas
+// usam o GTK, que em versões novas do GNOME pode fechar o app inteiro (SIGTRAP).
+// Uma mensagem por vez; as seguintes esperam na fila.
+// =====================================================================
+const dialogLog = [];          // textos mostrados (diagnóstico e testes)
+let dialogQueue = Promise.resolve();
+
+function showMessage(text, withCancel) {
+  dialogLog.push(String(text));
+  const shown = dialogQueue.then(() => new Promise(resolve => {
+    const box = $('msgBox'), ok = $('msgOk'), cancel = $('msgCancel');
+    const prevFocus = document.activeElement;
+    $('msgText').textContent = text;
+    cancel.classList.toggle('hidden', !withCancel);
+    const close = val => {
+      box.classList.add('hidden');
+      document.removeEventListener('keydown', onKey, true);
+      ok.onclick = cancel.onclick = null;
+      if (prevFocus && prevFocus.focus && document.contains(prevFocus)) prevFocus.focus();
+      resolve(val);
+    };
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(!withCancel); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true); }
+    };
+    ok.onclick = () => close(true);
+    cancel.onclick = () => close(false);
+    document.addEventListener('keydown', onKey, true);
+    box.classList.remove('hidden');
+    ok.focus();
+  }));
+  dialogQueue = shown.catch(() => {});
+  return shown;
+}
+const appAlert = text => showMessage(text, false);
+const appConfirm = text => showMessage(text, true);
+
+// =====================================================================
 // FORMULÁRIO DE ENTRADA
 // =====================================================================
 function readForm() {
   const name = $('nameInput').value.trim();
   const room = sanitizeRoom($('roomInput').value);
-  if (!name) { alert('Digite seu nome.'); return null; }
-  if (!room) { alert('Digite um código de sala (letras, números, - ou _).'); return null; }
+  if (!name) { appAlert('Digite seu nome.').then(() => $('nameInput').focus()); return null; }
+  if (!room) { appAlert('Digite um código de sala (letras, números, - ou _).').then(() => $('roomInput').focus()); return null; }
   return { name, room };
 }
 
@@ -59,17 +98,17 @@ function lockForm(lock) {
 }
 
 // Convite recebido (link telashare://sala/<código>)
-function handleInvite(room) {
+async function handleInvite(room) {
   room = sanitizeRoom(room || '');
   if (!room) return;
   if (peer) {
     if (room === roomCode) return;
-    if (!confirm(`Você recebeu um convite para a sala "${room}". Sair da sala atual e entrar nela?`)) return;
-    leaveRoom();
+    if (!(await appConfirm(`Você recebeu um convite para a sala "${room}". Sair da sala atual e entrar nela?`))) return;
+    if (peer) leaveRoom();
   }
   $('roomInput').value = room;
   if (!$('nameInput').value.trim()) {
-    alert(`Convite para a sala "${room}".\nDigite seu nome e clique em Entrar.`);
+    await appAlert(`Convite para a sala "${room}".\nDigite seu nome e clique em Entrar.`);
     $('nameInput').focus();
     return;
   }

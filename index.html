@@ -238,6 +238,17 @@
     </div>
   </div>
 
+  <!-- Avisos e confirmações (#66): caixa própria, sem as janelas nativas (no Linux elas usam o GTK e podem fechar o app) -->
+  <div id="msgBox" class="modal hidden" role="alertdialog" aria-modal="true" aria-describedby="msgText">
+    <div class="modal-box msg">
+      <p id="msgText"></p>
+      <div class="row right">
+        <button id="msgCancel">Cancelar</button>
+        <button id="msgOk" class="primary">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- avisos rápidos (toasts) -->
   <div id="toasts" aria-live="polite"></div>
 
