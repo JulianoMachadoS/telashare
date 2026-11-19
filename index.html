@@ -242,6 +242,16 @@
   <div id="toasts" aria-live="polite"></div>
 
   <script src="node_modules/peerjs/dist/peerjs.min.js"></script>
-  <script src="renderer.js"></script>
+  <!-- Núcleo (lógica, não mexe na tela) e interface (desenha a tela) — ver src/core/port.js -->
+  <script src="src/core/port.js"></script>
+  <script src="src/core/state.js"></script>
+  <script src="src/core/audio.js"></script>
+  <script src="src/core/room.js"></script>
+  <script src="src/core/media.js"></script>
+  <script src="src/core/diag.js"></script>
+  <script src="src/ui/dom.js"></script>
+  <script src="src/ui/tiles.js"></script>
+  <script src="src/ui/panels.js"></script>
+  <script src="src/ui/main.js"></script>
 </body>
 </html>

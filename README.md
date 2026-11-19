@@ -282,10 +282,27 @@ window-state.js  lembra o tamanho e a posição da janela
 pc-audio.js   inicia o auxiliar de áudio do PC e repassa o som
 pcm-worklet.js  toca o som do auxiliar com um buffer curto
 native/       auxiliar telashare-audio.exe (C++, Windows), compilado pelo CI
-index.html    interface
-renderer.js   lógica de conexão, áudio, volumes e compartilhamento
+index.html    interface (estrutura da página)
 style.css     visual
+src/core/     NÚCLEO: lógica, não mexe na tela
+  port.js       contrato entre o núcleo e a interface (objeto `ui`)
+  state.js      estado, preferências salvas, identidade, avisos e registro de eventos
+  audio.js      microfone, dispositivos, volumes, sons e quem está falando
+  room.js       sala, entrada, reconexão, malha P2P e mensagens entre os PCs
+  media.js      chamadas de voz e tela, qualidade, compartilhamento, foco e pausa
+  diag.js       diagnóstico, qualidade da conexão e inicialização do núcleo
+src/ui/       INTERFACE: desenha a tela e chama o núcleo
+  dom.js        formulário, lista de participantes, botões e medidor
+  tiles.js      escolha da tela, telas compartilhadas, foco e prévia
+  panels.js     barra lateral escondida, "Sobre" e atualizações
+  main.js       preenche o contrato `ui` e inicia o app
 ```
+
+O núcleo avisa a interface pelo objeto `ui` (ex.: `ui.status(texto)`, `ui.renderPeers()`) e lê as
+preferências por `ui.pref(chave)`. Para trocar a interface (ex.: por React), basta implementar o
+contrato descrito em `src/core/port.js` e chamar as funções públicas do núcleo (`hostRoom`, `joinRoom`,
+`leaveRoom`, `setMuted`, `startShare`, `stopShare`, `toggleFocus`, `toggleWatch`...). O teste 46
+confere que o núcleo não acessa a tela e que a interface preenche todo o contrato.
 
 ## 🧪 Testes automatizados (LOCAIS)
 
@@ -342,6 +359,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
 | 44 | **(#59)** "Não assistir": a tela vira barrinha, o vídeo para de vir e o som continua; a escolha vale quando a pessoa volta a compartilhar; "Assistir" traz o vídeo de volta |
 | 45 | **(#61)** Desistir de entrar numa sala e depois criar outra: com o amigo conectado, o selo mostra "Conectado" (antes ficava preso em "Conectando à sala...") |
+| 46 | **(#64)** O núcleo (`src/core`) não acessa a tela e a interface preenche todo o contrato `ui` |
 
 **O que NÃO é testado** (precisa de teste manual):
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
@@ -374,7 +392,7 @@ Copyright (C) 2026 **Juliano Machado da Silva** — [TelaShare](https://github.c
 Este projeto é distribuído sob a licença **GNU Affero General Public License v3.0 (AGPLv3)**. Veja os arquivos [LICENSE](LICENSE) e [NOTICE](NOTICE) para os termos completos.
 
 ### Resumo das regras de uso (TL;DR):
-Você é livre para usar, estudar, modificar e distribuir este software ou qualquer um de seus módulos (`renderer.js`, lógica WebRTC, processamento de áudio, etc.), **desde que cumpra obrigatoriamente estas condições**:
+Você é livre para usar, estudar, modificar e distribuir este software ou qualquer um de seus módulos (o núcleo em `src/core/`, lógica WebRTC, processamento de áudio, etc.), **desde que cumpra obrigatoriamente estas condições**:
 
 1. **Gratuito e Código Aberto Sempre (Copyleft Forte):** Qualquer projeto, fork ou sistema de terceiros que utilize código ou módulos do TelaShare (seja como aplicativo desktop ou rodando em servidor/web) **deve ter seu código-fonte completo aberto ao público** sob a mesma licença **AGPLv3**. Não é permitido fechar o código em software proprietário.
 2. **Referência Obrigatória ao Projeto Pai:** Você deve manter os avisos de copyright originais em todos os arquivos e referenciar de forma clara e visível na documentação e na interface que o projeto deriva do **TelaShare**, incluindo o link oficial: [https://github.com/JulianoMachadoS/telashare](https://github.com/JulianoMachadoS/telashare).
