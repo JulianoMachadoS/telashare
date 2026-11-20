@@ -51,7 +51,7 @@ async function buildDiagnostics() {
   L.push(`Sala: ${roomCode || '-'} · Eu: ${ui.pref('name') || '-'} (${peer ? shortId(peer.id) : 'fora da sala'})${isHost ? ' · anfitrião' : ''}`);
   L.push(`Servidor de sinalização: ${!peer ? '-' : peer.disconnected ? 'desconectado' : peer.open ? 'conectado' : 'conectando'} · TURN: ${String(ui.pref('turnUrl') || '').trim() ? 'configurado' : 'não'}`);
   const sharing = !screenStream ? 'não' : screenStream.getAudioTracks().length
-    ? `sim, com áudio do PC (sem as vozes da sala: ${screenAudioExcludesSelf ? 'sim' : 'NÃO'})` : 'sim, sem áudio';
+    ? `sim, com áudio do PC (sem as vozes da sala: ${screenAudioExcludesSelf ? 'sim' : 'NÃO'}${pcmNode ? ', pelo auxiliar' : pcAudioFallbackReason ? `, auxiliar indisponível: ${pcAudioFallbackReason}` : ''})` : 'sim, sem áudio';
   L.push(`Microfone: ${micMuted ? 'mudo' : 'ligado'} · Compartilhando a tela: ${sharing}`);
   L.push(`App visível: ${viewHidden ? 'não' : 'sim'} · Vídeo das telas que recebo: ${myViewMode() === 'off' ? 'pausado (app escondido)' : 'normal'}`);
   if (focusId) L.push(`Tela em foco: ${focusId === '__local__' ? 'a minha' : (peers.get(focusId) ? displayName(peers.get(focusId)) : focusId)} (as outras em miniatura)`);
@@ -154,6 +154,8 @@ async function initCore() {
   await refreshDevices();
   await setOutputDevice(ui.pref('out'));
   navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+  window.native.onPcAudioData(onPcAudioData);
+  window.native.onPcAudioExit(onPcAudioExit);
   applyVolumes();
   setInterval(voiceLoop, VOICE_INTERVAL_MS);
   netLoop();

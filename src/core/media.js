@@ -282,21 +282,71 @@ let localPreview = null;
 // true quando o áudio do PC capturado exclui o som do próprio app (sem eco das vozes)
 let screenAudioExcludesSelf = null;
 
+// =====================================================================
+// ÁUDIO DO PC SEM AS VOZES DA SALA (#35)
+// No Windows, o som do PC vem do auxiliar telashare-audio.exe, que captura todos os programas
+// EXCETO o TelaShare (API de process loopback, Windows 10 2004+). Assim, as vozes que o app toca
+// não voltam para dentro do áudio da tela. Se o auxiliar falhar, usa a captura antiga do
+// Chromium (todo o som do Windows) e avisa.
+// =====================================================================
+let pcmNode = null, pcmWorkletLoaded = false, pcAudioFallbackReason = null;
+function canUsePcAudioHelper() { return window.native.platform === 'win32'; }
+
+async function startPcAudioHelper() {
+  try {
+    if (!pcmWorkletLoaded) { await audioCtx.audioWorklet.addModule('pcm-worklet.js'); pcmWorkletLoaded = true; }
+    const r = await window.native.pcAudioStart(audioCtx.sampleRate);
+    if (!r || !r.ok) { pcAudioFallbackReason = (r && r.error) || 'erro desconhecido'; return null; }
+    pcmNode = new AudioWorkletNode(audioCtx, 'pcm-player', { numberOfInputs: 0, outputChannelCount: [2] });
+    logEvent(`áudio do PC pelo auxiliar (sem o som do TelaShare), ${r.rate} Hz`);
+    return pcmNode;
+  } catch (e) {
+    pcAudioFallbackReason = e.message;
+    try { await window.native.pcAudioStop(); } catch {}
+    return null;
+  }
+}
+
+function stopPcAudioHelper() {
+  if (!pcmNode) return;
+  try { pcmNode.disconnect(); } catch {}
+  pcmNode = null;
+  window.native.pcAudioStop().catch(() => {});
+}
+
+function onPcAudioData(d) {
+  if (!pcmNode || !d || !d.byteLength) return;
+  const buf = d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength);
+  pcmNode.port.postMessage(buf, [buf]);
+}
+
+function onPcAudioExit(info) {
+  if (!pcmNode) return;
+  pcmNode = null;
+  logEvent(`auxiliar de áudio do PC parou${info && info.error ? ': ' + info.error : ''}`);
+  if (screenStream) showToast('⚠️ O áudio do PC parou de ser capturado. Pare e compartilhe de novo para tentar outra vez.', 'warn', 10000);
+}
+
 async function startShare() {
   const id = await ui.pickSource();
   if (!id) return;
   const withAudio = !!ui.pref('shareAudio');
   currentQuality = QUALITY[ui.pref('quality')];
-  await window.native.selectSource(id, withAudio);
+  // No Windows, tenta primeiro o auxiliar (áudio do PC sem as vozes da sala)
+  pcAudioFallbackReason = null;
+  const helper = withAudio && canUsePcAudioHelper() ? await startPcAudioHelper() : null;
+  const systemAudio = withAudio && !helper; // captura antiga do Chromium (todo o som do Windows)
+  await window.native.selectSource(id, systemAudio);
 
   try {
     screenRaw = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: currentQuality.fps },
-      // restrictOwnAudio: o áudio do PC NÃO inclui o som do próprio TelaShare (as vozes da
-      // sala). Sem isso, quem compartilha reenvia a voz de todo mundo e todos ouvem eco (#35).
-      audio: withAudio ? { restrictOwnAudio: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false
+      // restrictOwnAudio: pede para excluir o som do próprio app (o Electron não repassa isso
+      // ao áudio do sistema; por isso o auxiliar acima é o caminho principal no Windows)
+      audio: systemAudio ? { restrictOwnAudio: true, echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false
     });
   } catch (e) {
+    stopPcAudioHelper();
     ui.alert('Não foi possível capturar a tela: ' + e.message);
     return;
   }
@@ -314,17 +364,20 @@ async function startShare() {
   const tracks = [vTrack];
   const aTrack = screenRaw.getAudioTracks()[0];
   screenAudioExcludesSelf = null;
+  if (helper) screenAudioExcludesSelf = true;
   if (aTrack) {
     const st = aTrack.getSettings ? aTrack.getSettings() : {};
     screenAudioExcludesSelf = st.restrictOwnAudio === true;
     if (!screenAudioExcludesSelf) {
+      if (pcAudioFallbackReason) logEvent(`auxiliar de áudio do PC indisponível: ${pcAudioFallbackReason}`);
       showToast('⚠️ Este PC não conseguiu separar o som da chamada do áudio do PC: quem está na sala ' +
-                'pode ouvir a própria voz repetida. Se não precisar do som da tela, desmarque "Incluir áudio do PC".', 'warn', 12000);
+                'pode ouvir a própria voz repetida. Se não precisar do som da tela, desmarque "Incluir áudio do PC".' +
+                (pcAudioFallbackReason ? ` (Motivo: ${pcAudioFallbackReason}. Requer Windows 10 versão 2004 ou mais novo.)` : ''), 'warn', 14000);
     }
   }
-  if (aTrack) {
+  if (aTrack || helper) {
     // passa o áudio da tela por um ganho (volume ajustável)
-    screenAudioNode = audioCtx.createMediaStreamSource(new MediaStream([aTrack]));
+    screenAudioNode = helper || audioCtx.createMediaStreamSource(new MediaStream([aTrack]));
     screenGain = audioCtx.createGain();
     screenGain.gain.value = ui.pref('shareVol') / 100;
     const dest = audioCtx.createMediaStreamDestination();
@@ -352,6 +405,7 @@ function stopShare() {
   if (screenRaw) screenRaw.getTracks().forEach(t => t.stop());
   if (screenStream) screenStream.getTracks().forEach(t => t.stop());
   if (screenAudioNode) screenAudioNode.disconnect();
+  stopPcAudioHelper();
   screenRaw = screenStream = screenAudioNode = screenGain = null;
   removeScreen('__local__');
   ui.shareChanged(false);

@@ -4,6 +4,7 @@ node_modules/
 # Builds / executáveis (vão para as Releases do GitHub)
 dist/
 out/
+native/bin/
 *.exe
 *.blockmap
 

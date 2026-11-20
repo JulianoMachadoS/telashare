@@ -28,6 +28,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Compilar o auxiliar de áudio (C++, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force native\bin | Out-Null
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /O2 /MT /EHsc /W4 native\telashare-audio.cpp /Fenative\bin\telashare-audio.exe /Fonative\bin\ ole32.lib mmdevapi.lib"
+          if (!(Test-Path native\bin\telashare-audio.exe)) { throw 'o auxiliar não foi gerado' }
+          native\bin\telashare-audio.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'o auxiliar não respondeu ao --version' }
+      # Informativo: a máquina do CI não tem placa de som, então a captura pode não iniciar aqui.
+      # O que importa é o auxiliar responder (READY ou um ERROR com o motivo) sem travar.
+      - name: Sondar o auxiliar de áudio (informativo)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath native\bin\telashare-audio.exe -ArgumentList "$PID 48000" -RedirectStandardError probe-err.txt -RedirectStandardOutput probe-out.bin -PassThru -NoNewWindow
+          Start-Sleep -Seconds 4
+          if (!$p.HasExited) { Stop-Process -Id $p.Id -Force; "ainda rodando após 4 s (capturando)" }
+          "stderr do auxiliar:"; Get-Content probe-err.txt
+          "bytes de áudio recebidos: " + (Get-Item probe-out.bin).Length
       - name: Testes (Windows)
         if: runner.os == 'Windows'
         run: npm test
@@ -50,6 +72,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Compilar o auxiliar de áudio (C++, Windows)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force native\bin | Out-Null
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" && cl /nologo /O2 /MT /EHsc /W4 native\telashare-audio.cpp /Fenative\bin\telashare-audio.exe /Fonative\bin\ ole32.lib mmdevapi.lib"
+          if (!(Test-Path native\bin\telashare-audio.exe)) { throw 'o auxiliar não foi gerado' }
+          native\bin\telashare-audio.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'o auxiliar não respondeu ao --version' }
       - run: npm run dist
       - name: Conferir os arquivos gerados
         shell: bash
@@ -57,6 +88,8 @@ jobs:
           ls -la dist
           test -f dist/TelaShare.exe
           test -f dist/latest.yml
+          # o auxiliar de áudio (#35) precisa estar dentro do pacote
+          test -f dist/win-unpacked/resources/telashare-audio.exe
           ls dist/TelaShare-Setup-*.exe dist/TelaShare-Setup-*.exe.blockmap
           # o latest.yml precisa apontar para o instalador desta versão
           v=$(node -p "require('./package.json').version")

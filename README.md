@@ -238,11 +238,14 @@ nada no app.
 
 ## ⚠️ Limitações e dicas
 
-- **Eco no áudio da tela:** desde a v1.3.5, "Incluir áudio do PC" captura o som do Windows **sem** o
-  som do próprio TelaShare, ou seja, sem as vozes da sala. Se o Windows não conseguir separar, aparece o aviso
-  "⚠️ Este PC não conseguiu separar o som da chamada..." e os colegas podem se ouvir repetidos. Nesse
-  caso, desmarque o áudio do PC se não precisar dele. Fone de ouvido **não** resolve, porque a
-  captura pega o som antes de ele chegar ao fone.
+- **Áudio do PC sem as vozes da sala:** desde a v1.9.2, no Windows 10 versão 2004 (build 19041) ou
+  mais novo, "Incluir áudio do PC" usa um pequeno auxiliar (`telashare-audio.exe`, vem junto com o app)
+  que captura o som de **todos os programas, menos o TelaShare**. Assim, as vozes da chamada não voltam
+  pela transmissão. Ele só roda enquanto você compartilha com áudio e usa muito pouca CPU e memória.
+  Se o auxiliar não funcionar no seu PC, o app volta para a captura antiga (todo o som do Windows) e
+  avisa: "⚠️ Este PC não conseguiu separar o som da chamada... (Motivo: ...)". Nesse caso, desmarque o
+  áudio do PC se não precisar dele. Fone de ouvido **não** resolve, porque a captura pega o som antes
+  de ele chegar ao fone.
 - **"Sala não encontrada"**: o código está diferente nos dois PCs, ou quem criou a sala fechou o app.
   O código ignora maiúsculas, espaços e acentos.
 - **"A sala existe, mas não foi possível conectar diretamente"**: veja o item abaixo.
@@ -276,6 +279,9 @@ test/         testes automatizados LOCAIS (npm test)
 main.js       processo principal (janela, captura de tela/áudio)
 preload.js    ponte segura entre o Electron e a página
 window-state.js  lembra o tamanho e a posição da janela
+pc-audio.js   inicia o auxiliar de áudio do PC e repassa o som
+pcm-worklet.js  toca o som do auxiliar com um buffer curto
+native/       auxiliar telashare-audio.exe (C++, Windows), compilado pelo CI
 index.html    interface (estrutura da página)
 style.css     visual
 src/core/     NÚCLEO: lógica, não mexe na tela
@@ -348,6 +354,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 | 38 | **(#48)** "Voltar para a sala": aparece depois de sair e um clique volta; com a sala vazia, o primeiro a voltar a abre de novo e o outro entra nela |
 | 39 | **(#49)** Tamanho e posição da janela: restaura, abre centralizada se o monitor foi desconectado, respeita o mínimo e o tamanho da tela, e salva quando a janela muda e ao fechar |
 | 40 | **(#55)** 25 mudanças seguidas de qualidade da tela (foco, pausa, adaptativa): a última pedida é a que fica valendo |
+| 41 | **(#35)** Áudio do PC pelo auxiliar: o módulo inicia/para e informa erros (auxiliar **falso**); o app usa o auxiliar no lugar da captura antiga e volta para ela com aviso se ele falhar |
 | 42 | **(#57)** A chamada de voz trava (nunca é atendida): quem liga refaz, ou quem recebe pede de novo, até o áudio chegar nos dois lados |
 | 43 | **(#57)** Duas pessoas entrando ao mesmo tempo: todos se veem e se ouvem (3 rodadas) |
 | 44 | **(#59)** "Não assistir": a tela vira barrinha, o vídeo para de vir e o som continua; a escolha vale quando a pessoa volta a compartilhar; "Assistir" traz o vídeo de volta |
@@ -359,7 +366,7 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 - ❌ **Conexão entre redes diferentes**: firewall, NAT, VPN e TURN. Nos testes a conexão é sempre
   "rede local", porque tudo roda no mesmo computador.
 - ❌ **Captura de tela real**: o teste usa uma imagem gerada no lugar da tela.
-- ❌ **Áudio do PC (loopback)**: só existe no Windows.
+- ❌ **Áudio do PC (loopback e o auxiliar `telashare-audio.exe`)**: só existem no Windows. O CI compila o auxiliar e confere se ele responde, mas a máquina do CI não tem placa de som.
 - ❌ **Qualidade do som para o ouvido**: os testes medem níveis numéricos, não se o som está agradável.
 - ❌ **O `.exe` no Windows**: os testes rodam o código-fonte com o Electron do sistema em que você está.
 
