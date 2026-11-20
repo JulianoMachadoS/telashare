@@ -5,6 +5,8 @@
 Compartilhamento de tela **com áudio** entre 2 ou mais computadores Windows, com voz e controle de volume.
 É simples, sem chat e sem cadastro: todo mundo digita o mesmo código de sala e pronto.
 
+![TelaShare: Bruno assistindo a tela compartilhada da Ana](docs/prints/02-sala-tela.png)
+
 ## ⬇️ Download
 
 Na página de [**Releases**](../../releases/latest) há duas opções:
@@ -19,6 +21,16 @@ usados pela atualização automática e você não precisa baixá-los.
 
 > **Aviso do Windows (SmartScreen):** o executável não tem assinatura digital, então o Windows pode
 > mostrar "O Windows protegeu o computador". Clique em **Mais informações → Executar assim mesmo**.
+
+## 📸 Telas
+
+| | |
+|---|---|
+| ![Tela inicial](docs/prints/01-inicio.png)<br>**Início:** seu nome, o código da sala e pronto. O 🎲 gera um código que ninguém mais vai usar. | ![Participantes](docs/prints/03-participantes.png)<br>**Participantes:** quem está na sala, a qualidade da conexão de cada um e o volume da voz de cada pessoa (até 400%). |
+| ![Duas telas, uma em destaque](docs/prints/04-foco.png)<br>**Várias telas:** destaque uma 🔍 e as outras ficam pequenas e mais leves. Com 🙈 você para de receber o vídeo de uma tela. | ![Barra lateral escondida](docs/prints/05-mini-barra.png)<br>**Mais espaço:** Ctrl+B esconde a barra lateral e deixa só o essencial (mudo, compartilhar e sair). |
+| ![Escolher o que compartilhar](docs/prints/06-escolher-tela.png)<br>**Compartilhar:** escolha a tela inteira ou só uma janela, com ou sem o áudio do PC. | ![Sobre o app](docs/prints/07-sobre.png)<br>**Sobre:** versão, atualização automática, licença e links do projeto. |
+
+> As telas compartilhadas dos prints são desenhos simulados. Os prints são gerados por `npm run prints` (veja abaixo).
 
 ## 🚀 Como usar
 
@@ -398,6 +410,14 @@ Referência atual (v1.9.5, Mac M5 com 16 GB; `perf/darwin-arm64.json`):
 | sala com tela | 7,8% | 5,3% | 807 MB | 403 MB | 23,5 MB |
 
 CPU: 100% equivale a 1 núcleo inteiro. A memória total inclui o processo principal, a GPU e os serviços do Chromium. "Páginas" é só a interface e o núcleo do app, a parte que o front novo pode mudar.
+
+## 📸 Gerar os prints do README
+
+```bash
+npm run prints
+```
+
+Abre 3 janelas (Ana, Bruno e Carla) numa sala de verdade, com telas simuladas, e salva as imagens em `docs/prints/`. As janelas abrem visíveis (só assim o vídeo aparece): não mexa nelas até terminar. Precisa de internet, para o servidor de sinalização. Refaça sempre que o visual mudar.
 
 ## ⚙️ CI (GitHub Actions)
 
