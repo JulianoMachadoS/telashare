@@ -166,7 +166,7 @@ function renderAutoUpdate(st) {
 }
 
 async function installUpdate() {
-  if (peer && !confirm('Reiniciar agora para atualizar?\nVocê vai sair da sala (dá para entrar de novo depois).')) return;
+  if (peer && !(await appConfirm('Reiniciar agora para atualizar?\nVocê vai sair da sala (dá para entrar de novo depois).'))) return;
   if (peer) leaveRoom();
   await window.native.updateInstall();
 }
