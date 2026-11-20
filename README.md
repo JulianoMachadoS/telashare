@@ -372,6 +372,33 @@ npm test -- 4 27     # só os módulos indicados (pelo número do teste), para t
 
 Os testes usam um microfone falso do Chromium (um bipe) e ficam em `test/local-e2e.js`.
 
+## 📊 Medição de desempenho
+
+O TelaShare precisa ser leve: compartilhar tela e áudio sem pesar no PC. `npm run perf` mede CPU e memória em 3 cenários, para comparar antes e depois de mudanças grandes, como o front novo (#68):
+
+| Cenário | O que acontece |
+|---|---|
+| `parado` | App aberto, fora de sala |
+| `salaComVoz` | 2 pessoas na sala, com microfone (simulado) |
+| `salaComTela` | 2 pessoas, uma compartilhando uma tela animada de 1280×720 a 30 fps, a outra assistindo |
+
+```bash
+npm run perf                  # 3 rodadas por cenário, mostra a mediana
+npm run perf -- --salvar      # grava em perf/<sistema>-<arquitetura>.json
+```
+
+As janelas abrem **visíveis** de propósito (escondidas, o Chromium não desenha e a interface pareceria mais leve). Não mexa nelas durante a medição. As "2 pessoas" são duas janelas no mesmo app, então os números somam as duas. **Compare só medições feitas na mesma máquina.**
+
+Referência atual (v1.9.5, Mac M5 com 16 GB; `perf/darwin-arm64.json`):
+
+| Cenário | CPU total | CPU das páginas | Memória total | Memória das páginas | Heap JS |
+|---|---|---|---|---|---|
+| parado | 1,8% | 0,8% | 540 MB | 143 MB | 9,5 MB |
+| sala com voz | 3,8% | 2,2% | 724 MB | 323 MB | 22,7 MB |
+| sala com tela | 7,8% | 5,3% | 807 MB | 403 MB | 23,5 MB |
+
+CPU: 100% equivale a 1 núcleo inteiro. A memória total inclui o processo principal, a GPU e os serviços do Chromium. "Páginas" é só a interface e o núcleo do app, a parte que o front novo pode mudar.
+
 ## ⚙️ CI (GitHub Actions)
 
 A cada push na branch `main`, o GitHub:
