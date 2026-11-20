@@ -958,7 +958,7 @@ app.whenReady().then(async () => {
     const dir = path.join(APP, 'src', 'core');
     const bad = [];
     for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
-      fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((line, i) => {
+      fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/).forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, '').replace(/'[^']*'|`[^`]*`/g, "''");
         const allowed = /document\.createElement\('audio'\)|document\.body\.appendChild\(p\.audioEl\)/.test(line);
         if (!allowed && /\bdocument\b|\$\(|querySelector|getElementById|classList|innerHTML|\btextContent\b|(^|[^.\w])(alert|confirm)\(/.test(code)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
@@ -977,7 +977,7 @@ app.whenReady().then(async () => {
     for (const sub of ['core', 'ui']) {
       const dir = path.join(APP, 'src', sub);
       for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
-        fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((line, i) => {
+        fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/).forEach((line, i) => {
           const code = line.replace(/\/\/.*$/, '').replace(/'[^']*'|`[^`]*`/g, "''");
           if (/(^|[^.\w])(alert|confirm|prompt)\(|window\.(alert|confirm|prompt)\b/.test(code)) bad.push(`${sub}/${f}:${i + 1}: ${line.trim()}`);
         });
@@ -1013,8 +1013,9 @@ app.whenReady().then(async () => {
     const c1 = await box(A);
     await js(A, 'msgCancel.click(); 1'); await wait(500);
     const stayed = await js(A, `!!peer && roomCode === '${room}'`);
-    await js(A, "handleInvite('outra47'); 1"); await wait(300); await js(A, 'msgOk.click(); 1'); await wait(800);
-    const moved = await js(A, "roomInput.value === 'outra47' && roomCode !== '" + room + "'");
+    await js(A, "handleInvite('outra47'); 1"); await wait(300); await js(A, 'msgOk.click(); 1');
+    // depois do OK o app sai da sala e conecta ao servidor para entrar na nova (pode passar de 1 s)
+    const moved = await until(async () => await js(A, "roomInput.value === 'outra47' && roomCode === 'outra47'"), 15000);
     const log2 = await alerts(A);
     check('47d. (#66) Convite estando numa sala: pergunta na caixa própria; Cancelar mantém a sala, OK troca',
       c1.open && /convite para a sala "outra47"/.test(c1.text) && c1.cancel && stayed && moved && !log2.some(m => m.startsWith('NATIVO')),
