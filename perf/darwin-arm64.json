@@ -1,0 +1,46 @@
+{
+  "data": "2026-11-20T05:16:19.227Z",
+  "versao": "1.9.5",
+  "electron": "45.3.2",
+  "maquina": {
+    "sistema": "darwin",
+    "arquitetura": "arm64",
+    "nucleos": 10,
+    "cpu": "Apple M5",
+    "memoriaGB": 16
+  },
+  "config": {
+    "rodadas": 3,
+    "medicaoSegundos": 20,
+    "aquecimentoSegundos": 8
+  },
+  "cenarios": {
+    "parado": {
+      "cpuTotal": 1.79,
+      "cpuPaginas": 0.83,
+      "memTotal": 540.38,
+      "memTotalPico": 547.98,
+      "memPaginas": 142.52,
+      "heapJs": 9.54,
+      "rodadas": 3
+    },
+    "salaComVoz": {
+      "cpuTotal": 3.8,
+      "cpuPaginas": 2.21,
+      "memTotal": 723.78,
+      "memTotalPico": 735.17,
+      "memPaginas": 323.07,
+      "heapJs": 22.7,
+      "rodadas": 3
+    },
+    "salaComTela": {
+      "cpuTotal": 7.77,
+      "cpuPaginas": 5.27,
+      "memTotal": 806.69,
+      "memTotalPico": 823.19,
+      "memPaginas": 402.99,
+      "heapJs": 23.46,
+      "rodadas": 3
+    }
+  }
+}

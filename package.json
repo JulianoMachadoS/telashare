@@ -14,7 +14,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable --x64 --publish never",
-    "test": "electron test/local-e2e.js"
+    "test": "electron test/local-e2e.js",
+    "perf": "electron test/perf.js"
   },
   "dependencies": {
     "electron-updater": "6.8.11",

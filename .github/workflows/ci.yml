@@ -56,6 +56,16 @@ jobs:
       - name: Testes (Linux, com tela virtual)
         if: runner.os == 'Linux'
         run: xvfb-run -a npx electron --no-sandbox test/local-e2e.js
+      # Só informação (#69): a máquina do CI é virtual e sem placa de vídeo, então os números
+      # servem para notar uma piora grande, não para comparar com um PC de verdade
+      - name: Medir desempenho (Windows, informativo)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: npm run perf -- --rodadas 1
+      - name: Medir desempenho (Linux, informativo)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: xvfb-run -a npx electron --no-sandbox test/perf.js --rodadas 1
 
   # Gera no Windows de verdade (com ícone e metadados aplicados):
   #  - TelaShare-Setup-X.Y.Z.exe + latest.yml + .blockmap: instalador que se atualiza sozinho (#44)
