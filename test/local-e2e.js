@@ -104,7 +104,9 @@ const ready = async ws => {
   await wait(2500);
   for (const w of ws) {
     await until(async () => { try { return await js(w, "!!(document.getElementById('hostBtn').onclick && typeof audioCtx !== 'undefined' && audioCtx)"); } catch { return false; } }, 30000);
-    await js(w, 'window.__alerts=[]; window.alert=m=>window.__alerts.push(m); 1');
+    // Avisos aparecem na caixa própria (#66) e ficam em dialogLog. Um alert/confirm nativo
+    // (que no Linux pode fechar o app) fica marcado como NATIVO para os testes acusarem.
+    await js(w, "window.alert = m => dialogLog.push('NATIVO: ' + m); window.confirm = m => (dialogLog.push('NATIVO: ' + m), false); 1");
     // As janelas de teste ficam ocultas e o Chromium pode marcá-las como "escondidas", o que
     // pausaria o vídeo das telas (#46) no meio de outros testes. Aqui elas contam como visíveis;
     // o teste 35 simula o app escondido de propósito.
@@ -114,7 +116,7 @@ const ready = async ws => {
 const host = (w, room) => js(w, `nameInput.value='Host'; roomInput.value='${room}'; hostBtn.click(); 1`);
 const join = (w, room, nm) => js(w, `nameInput.value='${nm}'; roomInput.value='${room}'; joinBtn.click(); 1`);
 const count = w => js(w, `[...peers.values()].filter(p => p.conn && p.conn.open && p.audioEl && p.audioEl.srcObject).length`);
-const alerts = w => js(w, '__alerts');
+const alerts = w => js(w, 'dialogLog');
 async function until(fn, ms) { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await wait(500); } return false; }
 const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log((ok ? '✅ PASSOU ' : '❌ FALHOU ') + name + (extra ? ' — ' + extra : '')); };
@@ -122,7 +124,7 @@ const destroy = ws => ws.forEach(w => w.destroy());
 // Em caso de falha, mostra o estado de cada janela (ajuda a entender falhas que só acontecem no CI)
 const dump = async ws => { for (const w of ws) { try { console.log('  ESTADO', JSON.stringify(await js(w, `({ id: peer && peer.id, host: isHost, open: !!(peer && peer.open), status: status.textContent,
   peers: [...peers.values()].map(p => ({ n: p.name, conn: !!(p.conn && p.conn.open), mic: !!p.micCall, audio: !!(p.audioEl && p.audioEl.srcObject), pc: p.conn && p.conn.peerConnection && p.conn.peerConnection.connectionState })),
-  roster: typeof roster !== 'undefined' ? [...roster.keys()] : null, pending: typeof pending !== 'undefined' ? [...pending.keys()] : null, toasts: toastLog, alerts: __alerts })`))); } catch (e) { console.log('  ESTADO erro', e.message); } } };
+  roster: typeof roster !== 'undefined' ? [...roster.keys()] : null, pending: typeof pending !== 'undefined' ? [...pending.keys()] : null, toasts: toastLog, alerts: dialogLog })`))); } catch (e) { console.log('  ESTADO erro', e.message); } } };
 const rid = () => 'suite' + Math.floor(Math.random() * 1e9);
 // Filtro de módulos: "npm test -- 4 27" roda só os testes 4 e 27 (sem números = todos)
 const ONLY = process.argv.slice(2).join(',').split(/[,\s]+/).filter(a => /^\d+$/.test(a));
@@ -238,7 +240,7 @@ app.whenReady().then(async () => {
       try { await testOutput(); } catch (x) { e.push('testOutput: ' + x.message); }
       try { toggleMonitor(); await new Promise(r => setTimeout(r, 300)); toggleMonitor(); } catch (x) { e.push('monitor: ' + x.message); }
       try { recordTest(); await new Promise(r => setTimeout(r, 7500)); } catch (x) { e.push('rec: ' + x.message); }
-      e.push(...__alerts); return e; })()`);
+      e.push(...dialogLog); return e; })()`);
     const recLabel = await js(B, 'recBtn.textContent');
     check('8. Testar som / ouvir microfone / gravar teste funcionam', errs.length === 0 && /Reproduzindo|Gravar teste/.test(recLabel), JSON.stringify(errs) + ' ' + recLabel);
     // 9. Saída do amigo some: selo volta
@@ -548,7 +550,7 @@ app.whenReady().then(async () => {
       const warned = await until(async () =>
         (await js(B, 'toastLog.some(t => /Sem conexão direta com Caio/.test(t)) && !!document.querySelector("#peerList li.missing")')) &&
         (await js(C, 'toastLog.some(t => /Sem conexão direta com Bia/.test(t)) && !!document.querySelector("#peerList li.missing")')), 40000);
-      if (!warned) console.log("  DEBUG", JSON.stringify(await Promise.all([A, B, C].map(w => js(w, `({ id: peer && peer.id, host: isHost, peers: [...peers.values()].map(p => p.name + ":" + !!(p.conn && p.conn.open)), roster: [...roster.keys()], toasts: toastLog, alerts: __alerts, status: status.textContent })`)))));
+      if (!warned) console.log("  DEBUG", JSON.stringify(await Promise.all([A, B, C].map(w => js(w, `({ id: peer && peer.id, host: isHost, peers: [...peers.values()].map(p => p.name + ":" + !!(p.conn && p.conn.open)), roster: [...roster.keys()], toasts: toastLog, alerts: dialogLog, status: status.textContent })`)))));
       const item = await js(B, '(document.querySelector("#peerList li.missing") || {}).textContent || ""');
       check('29b. (#30) Sem ligação direta: os dois são avisados e a pessoa aparece na lista com ⚠️', warned && /Caio/.test(item) && (await count(A)) === 2,
         `item="${item}" A=${await count(A)}`);
@@ -663,9 +665,11 @@ app.whenReady().then(async () => {
     // em uma sala: pede confirmação; recusando, não reinicia
     const room = rid(); await host(A, room);
     await until(async () => await js(A, '!!(peer && peer.open)'), 15000);
-    await js(A, 'window.confirm = () => false; updateDownload.click(); 1'); await wait(500);
-    const refused = !updateCalls.includes('install') && (await js(A, '!!peer'));
-    await js(A, 'window.confirm = () => true; updateDownload.click(); 1'); await wait(800);
+    await js(A, 'updateDownload.click(); 1'); await wait(300);
+    const asked = await js(A, "!msgBox.classList.contains('hidden') && /Reiniciar agora/.test(msgText.textContent)");
+    await js(A, 'msgCancel.click(); 1'); await wait(500);
+    const refused = asked && !updateCalls.includes('install') && (await js(A, '!!peer'));
+    await js(A, 'updateDownload.click(); 1'); await wait(300); await js(A, 'msgOk.click(); 1'); await wait(800);
     const installed = updateCalls.includes('install') && (await js(A, '!peer'));
     check('33b. (#44) "Reiniciar e atualizar" pergunta antes de sair da sala e só então instala', refused && installed, JSON.stringify({ refused, installed, calls: updateCalls }));
     send({ status: 'latest' }); await wait(200);
@@ -1037,7 +1041,7 @@ app.whenReady().then(async () => {
     const dir = path.join(APP, 'src', 'core');
     const bad = [];
     for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
-      fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((line, i) => {
+      fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/).forEach((line, i) => {
         const code = line.replace(/\/\/.*$/, '').replace(/'[^']*'|`[^`]*`/g, "''");
         const allowed = /document\.createElement\('audio'\)|document\.body\.appendChild\(p\.audioEl\)/.test(line);
         if (!allowed && /\bdocument\b|\$\(|querySelector|getElementById|classList|innerHTML|\btextContent\b|(^|[^.\w])(alert|confirm)\(/.test(code)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
@@ -1047,6 +1051,58 @@ app.whenReady().then(async () => {
     const A = mk(); await ready([A]);
     const missing = await js(A, 'missingUiHooks()');
     check('46b. (#64) A interface preenche todo o contrato do núcleo (ui)', Array.isArray(missing) && !missing.length, JSON.stringify(missing));
+    destroy([A]); }
+  // 47. (#66) Avisos sem janelas nativas: no Linux (GNOME novo) o alert()/confirm() do Electron usa o
+  //     GTK e fechava o app inteiro (SIGTRAP) ao clicar em "Criar sala" sem nome
+  if (want(47)) {
+    const fs = require('fs');
+    const bad = [];
+    for (const sub of ['core', 'ui']) {
+      const dir = path.join(APP, 'src', sub);
+      for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+        fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/).forEach((line, i) => {
+          const code = line.replace(/\/\/.*$/, '').replace(/'[^']*'|`[^`]*`/g, "''");
+          if (/(^|[^.\w])(alert|confirm|prompt)\(|window\.(alert|confirm|prompt)\b/.test(code)) bad.push(`${sub}/${f}:${i + 1}: ${line.trim()}`);
+        });
+      }
+    }
+    check('47a. (#66) Nenhum alert/confirm nativo no código do app', !bad.length, bad.join(' | '));
+
+    const A = mk(); await ready([A]);
+    const box = w => js(w, "({ open: !msgBox.classList.contains('hidden'), text: msgText.textContent, cancel: !msgCancel.classList.contains('hidden'), focus: document.activeElement && document.activeElement.id })");
+    await js(A, "nameInput.value=''; roomInput.value='sala47'; hostBtn.click(); 1"); await wait(300);
+    const b1 = await box(A);
+    await js(A, "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); 1"); await wait(300);
+    const b2 = await box(A);
+    const log1 = await alerts(A);
+    check('47b. (#66) "Criar sala" sem nome: aviso na caixa própria (sem janela nativa), Enter fecha e volta ao campo do nome',
+      b1.open && b1.text === 'Digite seu nome.' && !b1.cancel && !b2.open && b2.focus === 'nameInput' && !(await js(A, '!!peer')) && !log1.some(m => m.startsWith('NATIVO')),
+      JSON.stringify({ b1, b2, log1 }));
+
+    // avisos do núcleo em sequência: um por vez, na ordem
+    await js(A, "ui.alert('primeiro'); ui.alert('segundo'); 1"); await wait(300);
+    const q1 = await box(A);
+    await js(A, 'msgOk.click(); 1'); await wait(300);
+    const q2 = await box(A);
+    await js(A, 'msgOk.click(); 1'); await wait(300);
+    const q3 = await box(A);
+    check('47c. (#66) Vários avisos seguidos aparecem um de cada vez, na ordem', q1.open && q1.text === 'primeiro' && q2.open && q2.text === 'segundo' && !q3.open,
+      JSON.stringify({ q1, q2, q3 }));
+
+    // convite com a sala aberta: pergunta com Cancelar; cancelando, continua na sala
+    const room = rid(); await host(A, room);
+    await until(async () => await js(A, '!!(peer && peer.open)'), 15000);
+    await js(A, "handleInvite('outra47'); 1"); await wait(300);
+    const c1 = await box(A);
+    await js(A, 'msgCancel.click(); 1'); await wait(500);
+    const stayed = await js(A, `!!peer && roomCode === '${room}'`);
+    await js(A, "handleInvite('outra47'); 1"); await wait(300); await js(A, 'msgOk.click(); 1');
+    // depois do OK o app sai da sala e conecta ao servidor para entrar na nova (pode passar de 1 s)
+    const moved = await until(async () => await js(A, "roomInput.value === 'outra47' && roomCode === 'outra47'"), 15000);
+    const log2 = await alerts(A);
+    check('47d. (#66) Convite estando numa sala: pergunta na caixa própria; Cancelar mantém a sala, OK troca',
+      c1.open && /convite para a sala "outra47"/.test(c1.text) && c1.cancel && stayed && moved && !log2.some(m => m.startsWith('NATIVO')),
+      JSON.stringify({ c1, stayed, moved, log2 }));
     destroy([A]); }
   console.log(`\nRESULTADO: ${results.filter(Boolean).length}/${results.length} passaram (testes LOCAIS: mesmo computador, sem rede real entre casas)`);
   app.exit(results.length && results.every(Boolean) ? 0 : 1);

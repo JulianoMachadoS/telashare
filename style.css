@@ -104,6 +104,9 @@ button.muted { background: #da373c; }
 
 .modal { position: fixed; inset: 0; background: #000a; display: flex; align-items: center; justify-content: center; z-index: 10; }
 .modal-box { background: #313338; border-radius: 8px; padding: 18px; width: min(900px, 92vw); max-height: 86vh; overflow: auto; }
+#msgBox { z-index: 30; }
+.modal-box.msg { width: min(440px, 92vw); }
+#msgText { margin: 0 0 16px; white-space: pre-line; line-height: 1.45; }
 #sourceGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 10px 0; }
 .source { background: #2b2d31; border-radius: 6px; padding: 6px; cursor: pointer; border: 2px solid transparent; }
 .source:hover { border-color: #5865f2; }

@@ -44,7 +44,7 @@ const PREFS = {
 
 Object.assign(ui, {
   pref: key => (PREFS[key] ? PREFS[key]() : undefined),
-  alert: msg => window.alert(msg),
+  alert: msg => { appAlert(msg); },
   toast: renderToast,
   status: t => { $('status').textContent = t; },
   badge: paintBadge,
